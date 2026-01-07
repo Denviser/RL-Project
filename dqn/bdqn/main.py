@@ -11,7 +11,7 @@ logging.basicConfig(filename="run.log", level=logging.INFO)
 
 
 
-N_SYMBOLS=1000
+N_SYMBOLS=10000
 LR_CMA=0.01
 NUM_TAPS=3
 NUM_FILTERS=4
@@ -20,10 +20,10 @@ NUM_ACTION_BRANCHES=24 #Two for each filter tap for real and imag
 NUM_ACTIONS_PER_BRANCH=3 #Increase,Decrease,No change
 DELTA=1e-3 #How much to change increase or decrease each tap by for an action
 GAMMA=0.99 #Discount factor
-LR_Q_NET=1e-3
+LR_Q_NET=1e-5
 REPLAY_BUFFER_SIZE=int(1e5)
 NUM_EPISODES=400
-PRIORITISED_REPLAY_ALPHA=0.7
+PRIORITISED_REPLAY_ALPHA=0.6
 PRIORITISED_REPLAY_BETA=0.4
 PRIORITISED_REPLAY_EPSILON=1e-3
 GREEDY_EPS_INITIAL=1
@@ -31,7 +31,7 @@ GREEDY_EPS_FINAL=0.1
 TARGET_NETWORK_TAU=0.01
 MODEL_PATH="bdq_qnet.pt"
 BATCH_SIZE=256
-
+MAX_REWARD=-0.02
 
 def initialise_filters(NUM_TAPS):
     filters={}
@@ -58,6 +58,11 @@ def convert_filter_to_state(filters: dict) -> np.ndarray:
     keys = ["pxx", "pxy", "pyx", "pyy"]
     parts = [_interleave_real_imag(filters[k]) for k in keys]
     return np.concatenate(parts, axis=0)
+
+def convert_filter_prev_action_to_extended_state(filters:dict,actions:np.ndarray):
+    og_state=convert_filter_to_state(filters)
+    extended_state=np.concatenate((og_state,actions),axis=0)
+    return extended_state
 
 def _deinterleave_to_complex(v: np.ndarray, num_taps: int, complex_dtype=np.complex64) -> np.ndarray:
     v = np.asarray(v)
@@ -91,15 +96,20 @@ def state_to_filter(state: np.ndarray, num_taps: int) -> dict:
 
     return filters
 
+def convert_extended_state_to_filter(state: np.ndarray, num_taps: int) -> dict:
+    state=state[:-NUM_ACTION_BRANCHES]
+    return state_to_filter(state,num_taps)
+
 def round_filters_to_step(filters: dict, step: float = 1e-3) -> dict:
     out = {}
     for k, v in filters.items():
         v = np.asarray(v)
         # handle complex and real arrays uniformly
-        vr = np.round(v.real / step) * step  # [web:441]
-        vi = np.round(v.imag / step) * step  # [web:441]
+        vr = np.round(v.real / step) * step  
+        vi = np.round(v.imag / step) * step  
         out[k] = (vr + 1j * vi).astype(v.dtype)
     return out
+
 
 def train():
     agent=DQNAgent(NUM_TAPS,
@@ -120,7 +130,8 @@ def train():
         E_in=cma_utils.normalise(E_after_pmd)
 
         initial_filters=initialise_filters(NUM_TAPS)
-        state=convert_filter_to_state(initial_filters)
+        #The initial state is the intial filters along with no change action
+        state=convert_filter_prev_action_to_extended_state(initial_filters,np.array([0 for i in range(NUM_ACTION_BRANCHES)]))
         cur_ind=NUM_TAPS-1
         avg_reward=0
         for cur_ind in range(NUM_TAPS,N_SYMBOLS):
@@ -131,14 +142,16 @@ def train():
             #Actions have values 0,1,2 we subtract 1 to get -1,0,1 for the direction
             directions=cur_actions-1
 
-            x_out,y_out=cma_utils.apply_filters(E_in,cur_ind,NUM_TAPS,state_to_filter(state,NUM_TAPS))
+            #Move in the direction to get the new state
+            state_filter_part=state[:-NUM_ACTION_BRANCHES]
+            next_state_filter_part=state_filter_part+directions*DELTA
+
+            x_out,y_out=cma_utils.apply_filters(E_in,cur_ind,NUM_TAPS,state_to_filter(next_state_filter_part,NUM_TAPS))
 
             #compute reward
             reward=cma_utils.compute_reward(x_out,y_out)
-            #Move in the direction to get the new state
-            next_state=state+directions*DELTA
-
             #print("state is",state)
+            next_state=np.concatenate((next_state_filter_part,cur_actions))
             #print("next_state is",next_state)
 
             agent.replay_buffer.add(state,cur_actions,reward,next_state)
@@ -148,8 +161,9 @@ def train():
             state=next_state
 
             if (cur_ind+1)%100==0:
-                loss=agent.update(batch_size=BATCH_SIZE)
-                agent.soft_update(tau=TARGET_NETWORK_TAU)
+                if len(agent.replay_buffer)>5000:
+                    loss=agent.update(batch_size=BATCH_SIZE)
+                #agent.soft_update(tau=TARGET_NETWORK_TAU)
                 #print("loss is",loss)
 
         eps=GREEDY_EPS_INITIAL-eps_decay*episode
@@ -158,6 +172,7 @@ def train():
 
         avg_reward/=N_SYMBOLS-NUM_TAPS
         print(f"Episode {episode+1}, epsilon={eps:.3f}, last_loss={loss:.6f}, reward={avg_reward:.6f}")
+        #print("Q values are",agent.q_net(torch.tensor(state,dtype=torch.float32,device="cuda").unsqueeze(0)))
         logging.info("episode=%d loss=%f reward=%f", episode+1, loss,avg_reward)
         torch.save(agent.q_net.state_dict(),MODEL_PATH)
 
@@ -220,14 +235,23 @@ def main():
 
     print("Initial converged filters are",converged_filters)
 
-    converged_filters_rounded=round_filters_to_step(converged_filters,DELTA)
+    converged_filters_rounded=round_filters_to_step(converged_filters,1e-2)
     
     print("Rounded filters are",converged_filters_rounded)
+    
+    
     E_normalised=cma_utils.normalise(E_after_pmd)
     
-    cma_utils.plot_constellation(E_out)
+    # cma_utils.plot_constellation(E_out)
     
     E_out_rounded=cma_utils.apply_entire_filters(E_normalised,converged_filters_rounded)
+    x_pol,y_pol=E_out_rounded[:,0],E_out_rounded[:,1]
+
+    avg_reward=0
+    for ele in range(len(x_pol)):
+        avg_reward+=cma_utils.compute_reward(x_pol[ele],y_pol[ele])
+    avg_reward/=len(x_pol)
+    print("Average reward is",avg_reward)
     cma_utils.plot_constellation(E_out_rounded)
     #train()
     #E_out=test()

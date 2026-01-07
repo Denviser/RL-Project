@@ -77,15 +77,15 @@ class BDQ(nn.Module):
 
 
 class DQNAgent:
-    def __init__(self, num_taps_per_filter,model_path, delta=0.01, gamma=0.99, lr=1e-3,replay_buffer_size=1e6,prioritised_replay_alpha=0.6,prioritised_replay_beta=0.4,prioritised_replay_epsilon=1e-6):
+    def __init__(self, num_taps_per_filter,model_path, delta=0.01, gamma=0.99, lr=1e-3,replay_buffer_size=1e6,prioritised_replay_alpha=0.6,prioritised_replay_beta=0.4,prioritised_replay_epsilon=1e-6,num_filters=4):
         
         self.num_taps_per_filter = num_taps_per_filter
-        self.num_filters=4
-        #We set our state dimension as twice the total number_coefficients as we have real and imaginary parts
+        self.num_filters=num_filters
+        #We set our state dimension as twice the total number_coefficients as we have real and imaginary parts along with the number of actions which is also 2*self.num_coeffs
         self.num_coeffs=num_taps_per_filter*self.num_filters
-        self.state_dim = 2*self.num_coeffs
+        self.state_dim = 4*self.num_coeffs
 
-        self.num_action_branches=self.state_dim
+        self.num_action_branches=2*self.num_coeffs
         #The actions are increase,decrease and remain same
         self.num_actions=3
         
@@ -179,6 +179,7 @@ class DQNAgent:
         
         self.optimizer.zero_grad()
         loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.q_net.parameters(), max_norm=10.0)
         self.optimizer.step()
 
         new_priorities=td_errors.detach().cpu().numpy() + self.prioritised_replay_eps

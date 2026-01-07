@@ -190,4 +190,6 @@ def cma_error_dualpol(x_out,y_out,Radius=1):
 
 def compute_reward(x_out,y_out):
     """For reward we need it to be neg of cma as cma error is minimum for good filters and we want high reward"""
-    return -cma_error_dualpol(x_out,y_out)
+    reward=-cma_error_dualpol(x_out,y_out)
+    reward=np.clip(reward,-10,0)
+    return reward
