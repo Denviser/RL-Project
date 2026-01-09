@@ -188,6 +188,8 @@ def cma_error_dualpol(x_out,y_out,Radius=1):
     e_y=((np.abs(y_out)**2-Radius**2))**2
     return e_x+e_y
 
-def compute_reward(x_out,y_out):
+def compute_reward(x_out,y_out,REWARD_CLIP=-10):
     """For reward we need it to be neg of cma as cma error is minimum for good filters and we want high reward"""
-    return -cma_error_dualpol(x_out,y_out)
+    reward=-cma_error_dualpol(x_out,y_out)
+    reward=np.clip(reward,REWARD_CLIP,0)
+    return reward

@@ -133,7 +133,7 @@ class DQNAgent:
             #Returns shape [num_action_branches]
             return actions.squeeze()
 
-    def update(self, batch_size=512):
+    def update(self, batch_size=512,GRAD_NORM_CLIP=10):
         if len(self.replay_buffer) < batch_size:
             return None
         #The shapes of states is [B,state_dim],actions is [B, num_action_branches, 1],rewards is [B,1]
@@ -179,6 +179,8 @@ class DQNAgent:
         
         self.optimizer.zero_grad()
         loss.backward()
+        #Clip gradients
+        torch.nn.utils.clip_grad_norm_(self.q_net.parameters(),GRAD_NORM_CLIP)
         self.optimizer.step()
 
         new_priorities=td_errors.detach().cpu().numpy() + self.prioritised_replay_eps

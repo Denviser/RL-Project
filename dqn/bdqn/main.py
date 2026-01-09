@@ -31,7 +31,8 @@ GREEDY_EPS_FINAL=0.1
 TARGET_NETWORK_TAU=0.01
 MODEL_PATH="bdq_qnet.pt"
 BATCH_SIZE=256
-
+GRAD_NORM_CLIP=10
+REWARD_CLIP=-10
 
 def initialise_filters(NUM_TAPS):
     filters={}
@@ -101,6 +102,9 @@ def round_filters_to_step(filters: dict, step: float = 1e-3) -> dict:
         out[k] = (vr + 1j * vi).astype(v.dtype)
     return out
 
+def calculate_state_distance(cur_state,intial_state):
+    return np.linalg.norm(cur_state-intial_state)
+
 def train():
     agent=DQNAgent(NUM_TAPS,
                    MODEL_PATH,
@@ -120,9 +124,12 @@ def train():
         E_in=cma_utils.normalise(E_after_pmd)
 
         initial_filters=initialise_filters(NUM_TAPS)
+        intial_state=convert_filter_to_state(initial_filters)
         state=convert_filter_to_state(initial_filters)
         cur_ind=NUM_TAPS-1
         avg_reward=0
+
+        distance_arr=[]
         for cur_ind in range(NUM_TAPS,N_SYMBOLS):
 
             #cur_action has shape [num_action_branches]
@@ -131,13 +138,16 @@ def train():
             #Actions have values 0,1,2 we subtract 1 to get -1,0,1 for the direction
             directions=cur_actions-1
 
-            x_out,y_out=cma_utils.apply_filters(E_in,cur_ind,NUM_TAPS,state_to_filter(state,NUM_TAPS))
 
-            #compute reward
-            reward=cma_utils.compute_reward(x_out,y_out)
             #Move in the direction to get the new state
             next_state=state+directions*DELTA
 
+            #Add the distance
+            distance_arr.append(calculate_state_distance(next_state,intial_state))
+            #We want to first play the action then recieve the reward for it
+            x_out,y_out=cma_utils.apply_filters(E_in,cur_ind,NUM_TAPS,state_to_filter(next_state,NUM_TAPS))
+            #compute reward
+            reward=cma_utils.compute_reward(x_out,y_out,REWARD_CLIP)
             #print("state is",state)
             #print("next_state is",next_state)
 
@@ -148,17 +158,15 @@ def train():
             state=next_state
 
             if (cur_ind+1)%100==0:
-                loss=agent.update(batch_size=BATCH_SIZE)
-                agent.soft_update(tau=TARGET_NETWORK_TAU)
-                #print("loss is",loss)
+                loss=agent.update(batch_size=BATCH_SIZE,GRAD_NORM_CLIP=GRAD_NORM_CLIP)
 
         eps=GREEDY_EPS_INITIAL-eps_decay*episode
-        loss=agent.update(batch_size=BATCH_SIZE)
+        loss=agent.update(batch_size=BATCH_SIZE,GRAD_NORM_CLIP=GRAD_NORM_CLIP)
         agent.soft_update(tau=TARGET_NETWORK_TAU)
 
         avg_reward/=N_SYMBOLS-NUM_TAPS
         print(f"Episode {episode+1}, epsilon={eps:.3f}, last_loss={loss:.6f}, reward={avg_reward:.6f}")
-        logging.info("episode=%d loss=%f reward=%f", episode+1, loss,avg_reward)
+        logging.info("episode=%d loss=%f reward=%f \n distances=%s", episode+1, loss,avg_reward,distance_arr)
         torch.save(agent.q_net.state_dict(),MODEL_PATH)
 
 def test():
@@ -225,10 +233,11 @@ def main():
     print("Rounded filters are",converged_filters_rounded)
     E_normalised=cma_utils.normalise(E_after_pmd)
     
-    cma_utils.plot_constellation(E_out)
+    print("Distance bw converged and intial for cma is",calculate_state_distance(convert_filter_to_state(converged_filters),convert_filter_to_state(initialise_filters(NUM_TAPS))))
+    #cma_utils.plot_constellation(E_out)
     
     E_out_rounded=cma_utils.apply_entire_filters(E_normalised,converged_filters_rounded)
-    cma_utils.plot_constellation(E_out_rounded)
+    #cma_utils.plot_constellation(E_out_rounded)
     #train()
     #E_out=test()
     #cma_utils.plot_constellation(E_out)
