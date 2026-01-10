@@ -18,9 +18,9 @@ NUM_FILTERS=4
 MATLAB_FUNCTION_PATH="C:\\optical\\Coherent-Optical-Communication\\Coherent-Optical-Communication\\functions\\DSP"
 NUM_ACTION_BRANCHES=24 #Two for each filter tap for real and imag
 NUM_ACTIONS_PER_BRANCH=3 #Increase,Decrease,No change
-DELTA=1e-3 #How much to change increase or decrease each tap by for an action
+DELTA=1e-2 #How much to change increase or decrease each tap by for an action
 GAMMA=0.99 #Discount factor
-LR_Q_NET=1e-5
+LR_Q_NET=1e-3
 REPLAY_BUFFER_SIZE=int(1e5)
 NUM_EPISODES=400
 PRIORITISED_REPLAY_ALPHA=0.6
@@ -30,7 +30,7 @@ GREEDY_EPS_INITIAL=1
 GREEDY_EPS_FINAL=0.1
 TARGET_NETWORK_TAU=0.01
 MODEL_PATH="bdq_qnet.pt"
-BATCH_SIZE=256
+BATCH_SIZE=128
 MAX_REWARD=-0.02
 
 def initialise_filters(NUM_TAPS):
@@ -134,6 +134,7 @@ def train():
         state=convert_filter_prev_action_to_extended_state(initial_filters,np.array([0 for i in range(NUM_ACTION_BRANCHES)]))
         cur_ind=NUM_TAPS-1
         avg_reward=0
+        avg_loss=0
         for cur_ind in range(NUM_TAPS,N_SYMBOLS):
 
             #cur_action has shape [num_action_branches]
@@ -160,20 +161,21 @@ def train():
             #update the state
             state=next_state
 
-            if (cur_ind+1)%100==0:
-                if len(agent.replay_buffer)>5000:
+            if len(agent.replay_buffer)>5000:
                     loss=agent.update(batch_size=BATCH_SIZE)
+                    avg_loss+=loss
                 #agent.soft_update(tau=TARGET_NETWORK_TAU)
                 #print("loss is",loss)
 
         eps=GREEDY_EPS_INITIAL-eps_decay*episode
-        loss=agent.update(batch_size=BATCH_SIZE)
-        agent.soft_update(tau=TARGET_NETWORK_TAU)
+        agent.target_net.load_state_dict(agent.q_net.state_dict())
 
         avg_reward/=N_SYMBOLS-NUM_TAPS
-        print(f"Episode {episode+1}, epsilon={eps:.3f}, last_loss={loss:.6f}, reward={avg_reward:.6f}")
+        avg_loss/=N_SYMBOLS-NUM_TAPS
+
+        print(f"Episode {episode+1}, epsilon={eps:.3f}, last_loss={avg_loss:.6f}, reward={avg_reward:.6f}")
         #print("Q values are",agent.q_net(torch.tensor(state,dtype=torch.float32,device="cuda").unsqueeze(0)))
-        logging.info("episode=%d loss=%f reward=%f", episode+1, loss,avg_reward)
+        logging.info("episode=%d avg_loss=%f reward=%f", episode+1, avg_loss,avg_reward)
         torch.save(agent.q_net.state_dict(),MODEL_PATH)
 
 def test():
@@ -252,8 +254,8 @@ def main():
         avg_reward+=cma_utils.compute_reward(x_pol[ele],y_pol[ele])
     avg_reward/=len(x_pol)
     print("Average reward is",avg_reward)
-    cma_utils.plot_constellation(E_out_rounded)
-    #train()
+    #cma_utils.plot_constellation(E_out_rounded)
+    train()
     #E_out=test()
     #cma_utils.plot_constellation(E_out)
 

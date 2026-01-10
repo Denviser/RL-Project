@@ -135,7 +135,8 @@ class DQNAgent:
 
     def update(self, batch_size=512):
         if len(self.replay_buffer) < batch_size:
-            return None
+            #returning some large loss
+            return 1000
         #The shapes of states is [B,state_dim],actions is [B, num_action_branches, 1],rewards is [B,1]
         replay_buffer_samples=self.replay_buffer.sample(batch_size,self.prioritised_replay_beta)
 
