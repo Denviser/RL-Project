@@ -5,7 +5,7 @@ import numpy as np
 import random
 import matplotlib.pyplot as plt
 from collections import deque
-from replay_buffer import PrioritizedReplayBuffer
+from replay_buffer import PrioritizedReplayBuffer,ReplayBuffer
 
 if torch.cuda.is_available():
     device = torch.device('cuda')
@@ -77,17 +77,14 @@ class BDQ(nn.Module):
 
 
 class DQNAgent:
-    def __init__(self, num_taps_per_filter,model_path, delta=0.01, gamma=0.99, lr=1e-3,replay_buffer_size=1e6,prioritised_replay_alpha=0.6,prioritised_replay_beta=0.4,prioritised_replay_epsilon=1e-6,num_filters=4):
+    def __init__(self,state_dim,num_action_branches,num_actions_per_branch,model_path, delta=0.01, gamma=0.99, lr=1e-3,replay_buffer_size=1e6,prioritised_replay_alpha=0.6,prioritised_replay_beta=0.4,prioritised_replay_epsilon=1e-6):
         
-        self.num_taps_per_filter = num_taps_per_filter
-        self.num_filters=num_filters
-        #We set our state dimension as twice the total number_coefficients as we have real and imaginary parts along with the number of actions which is also 2*self.num_coeffs
-        self.num_coeffs=num_taps_per_filter*self.num_filters
-        self.state_dim = 4*self.num_coeffs
+        
+        self.state_dim = state_dim
 
-        self.num_action_branches=2*self.num_coeffs
+        self.num_action_branches= num_action_branches
         #The actions are increase,decrease and remain same
-        self.num_actions=3
+        self.num_actions= num_actions_per_branch
         
         self.gamma = gamma
         self.prioritised_replay_beta=prioritised_replay_beta
@@ -106,22 +103,14 @@ class DQNAgent:
         self.target_net.load_state_dict(self.q_net.state_dict())
 
         self.optimizer = torch.optim.Adam(self.q_net.parameters(), lr=lr)
-        self.replay_buffer = PrioritizedReplayBuffer(replay_buffer_size,prioritised_replay_alpha)
+        self.replay_buffer = ReplayBuffer(replay_buffer_size)
         self.loss_fn = nn.MSELoss(reduction='none')
 
 
 
-    def select_action(self, state, epsilon):
+    def select_greedy_action(self, state):
         """This function selects an action based on the epsilon-greedy policy
         and returns an tensor of shape num_branches"""
-        if random.random() < epsilon:
-            actions = torch.randint(
-                low=0,
-                high=self.num_actions,
-                size=(self.num_action_branches,),
-                device=device
-            )
-            return actions
         with torch.no_grad():
             #The recieved state has dimension (24,) we need to make it (1,24) as number of batches is 1
             cur_state=torch.as_tensor(state,dtype=torch.float32,device=device).unsqueeze(0)
@@ -131,22 +120,25 @@ class DQNAgent:
             actions = q_vals.argmax(dim=2, keepdim=True)  # [B, num_action_branches, 1]
             
             #Returns shape [num_action_branches]
-            return actions.squeeze()
+            return actions.squeeze().cpu().numpy()
 
     def update(self, batch_size=512):
         if len(self.replay_buffer) < batch_size:
             #returning some large loss
             return 1000
         #The shapes of states is [B,state_dim],actions is [B, num_action_branches, 1],rewards is [B,1]
-        replay_buffer_samples=self.replay_buffer.sample(batch_size,self.prioritised_replay_beta)
+        #replay_buffer_samples=self.replay_buffer.sample(batch_size,self.prioritised_replay_beta)
 
-        states, actions, rewards, next_states,weights,batch_indexs = replay_buffer_samples
+        replay_buffer_samples=self.replay_buffer.sample(batch_size)
+        states, actions, rewards, next_states,dones = replay_buffer_samples
 
         states=torch.as_tensor(states,dtype=torch.float32,device=device)
         actions=torch.as_tensor(actions,dtype=torch.int64,device=device)
         rewards=torch.as_tensor(rewards,dtype=torch.float32,device=device)
         next_states=torch.as_tensor(next_states,dtype=torch.float32,device=device)
-        weights=torch.as_tensor(weights,dtype=torch.float32,device=device)
+        #weights=torch.as_tensor(weights,dtype=torch.float32,device=device)
+        dones=torch.as_tensor(dones,dtype=torch.int64,device=device)
+        #print("dones is",dones)
         #batch_indexs=torch.as_tensor(batch_indexs,dtype=torch.int64,device=device)
         
         #This will give shape [B,num_action_branches,1]
@@ -165,8 +157,9 @@ class DQNAgent:
 
             #Reshaping reward so that It matches the right shape
             rewards=rewards.view(batch_size,1,1)
+            dones=dones.view(batch_size,1,1)
             #rewards is of shape [B,1] and gets broadcast to [B,num_action_branches,1]
-            targets = rewards + self.gamma * next_q_vals
+            targets = rewards + self.gamma * next_q_vals*(1-dones)
         
         #Has dimension [B,num_action_branches,1]
         mse_all = self.loss_fn(q_vals, targets)
@@ -176,15 +169,15 @@ class DQNAgent:
         td_errors=torch.abs(q_vals-targets).mean(dim=(1,2))
 
         #This is a scalar
-        loss= (weights*td_errors_sq).mean()
-        
+        #loss= (weights*td_errors_sq).mean()
+        loss= td_errors_sq.mean()
         self.optimizer.zero_grad()
         loss.backward()
         torch.nn.utils.clip_grad_norm_(self.q_net.parameters(), max_norm=10.0)
         self.optimizer.step()
 
         new_priorities=td_errors.detach().cpu().numpy() + self.prioritised_replay_eps
-        self.replay_buffer.update_priorities(batch_indexs,new_priorities)
+        #self.replay_buffer.update_priorities(batch_indexs,new_priorities)
         return loss.item()
 
     def soft_update(self, tau=0.01):
