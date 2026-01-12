@@ -5,7 +5,7 @@ import numpy as np
 import random
 import matplotlib.pyplot as plt
 from collections import deque
-from replay_buffer import PrioritizedReplayBuffer
+from replay_buffer import PrioritizedReplayBuffer,ReplayBuffer
 
 if torch.cuda.is_available():
     device = torch.device('cuda')
@@ -77,7 +77,7 @@ class BDQ(nn.Module):
 
 
 class DQNAgent:
-    def __init__(self, num_taps_per_filter,model_path, delta=0.01, gamma=0.99, lr=1e-3,replay_buffer_size=1e6,prioritised_replay_alpha=0.6,prioritised_replay_beta=0.4,prioritised_replay_epsilon=1e-6):
+    def __init__(self, num_taps_per_filter,model_path, delta=0.01, gamma=0.99, lr=1e-3,replay_buffer_size=int(1e6),prioritised_replay_alpha=0.6,prioritised_replay_beta=0.4,prioritised_replay_epsilon=1e-6):
         
         self.num_taps_per_filter = num_taps_per_filter
         self.num_filters=4
@@ -106,7 +106,7 @@ class DQNAgent:
         self.target_net.load_state_dict(self.q_net.state_dict())
 
         self.optimizer = torch.optim.Adam(self.q_net.parameters(), lr=lr)
-        self.replay_buffer = PrioritizedReplayBuffer(replay_buffer_size,prioritised_replay_alpha)
+        self.replay_buffer = ReplayBuffer(replay_buffer_size)
         self.loss_fn = nn.MSELoss(reduction='none')
 
 
@@ -137,15 +137,15 @@ class DQNAgent:
         if len(self.replay_buffer) < batch_size:
             return None
         #The shapes of states is [B,state_dim],actions is [B, num_action_branches, 1],rewards is [B,1]
-        replay_buffer_samples=self.replay_buffer.sample(batch_size,self.prioritised_replay_beta)
+        replay_buffer_samples=self.replay_buffer.sample(batch_size)
 
-        states, actions, rewards, next_states,weights,batch_indexs = replay_buffer_samples
+        states, actions, rewards, next_states= replay_buffer_samples
 
         states=torch.as_tensor(states,dtype=torch.float32,device=device)
         actions=torch.as_tensor(actions,dtype=torch.int64,device=device)
         rewards=torch.as_tensor(rewards,dtype=torch.float32,device=device)
         next_states=torch.as_tensor(next_states,dtype=torch.float32,device=device)
-        weights=torch.as_tensor(weights,dtype=torch.float32,device=device)
+        #weights=torch.as_tensor(weights,dtype=torch.float32,device=device)
         #batch_indexs=torch.as_tensor(batch_indexs,dtype=torch.int64,device=device)
         
         #This will give shape [B,num_action_branches,1]
@@ -175,7 +175,7 @@ class DQNAgent:
         td_errors=torch.abs(q_vals-targets).mean(dim=(1,2))
 
         #This is a scalar
-        loss= (weights*td_errors_sq).mean()
+        loss= td_errors_sq.mean()
         
         self.optimizer.zero_grad()
         loss.backward()
@@ -184,7 +184,7 @@ class DQNAgent:
         self.optimizer.step()
 
         new_priorities=td_errors.detach().cpu().numpy() + self.prioritised_replay_eps
-        self.replay_buffer.update_priorities(batch_indexs,new_priorities)
+        #self.replay_buffer.update_priorities(batch_indexs,new_priorities)
         return loss.item()
 
     def soft_update(self, tau=0.01):

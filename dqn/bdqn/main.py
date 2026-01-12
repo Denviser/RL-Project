@@ -21,7 +21,7 @@ NUM_ACTIONS_PER_BRANCH=3 #Increase,Decrease,No change
 DELTA=1e-3 #How much to change increase or decrease each tap by for an action
 GAMMA=0.99 #Discount factor
 LR_Q_NET=1e-3
-REPLAY_BUFFER_SIZE=int(1e5)
+REPLAY_BUFFER_SIZE=int(1e6)
 NUM_EPISODES=400
 PRIORITISED_REPLAY_ALPHA=0.7
 PRIORITISED_REPLAY_BETA=0.4
@@ -157,11 +157,10 @@ def train():
             #update the state
             state=next_state
 
-            if (cur_ind+1)%100==0:
-                loss=agent.update(batch_size=BATCH_SIZE,GRAD_NORM_CLIP=GRAD_NORM_CLIP)
+            loss=agent.update(batch_size=BATCH_SIZE,GRAD_NORM_CLIP=GRAD_NORM_CLIP)
 
         eps=GREEDY_EPS_INITIAL-eps_decay*episode
-        loss=agent.update(batch_size=BATCH_SIZE,GRAD_NORM_CLIP=GRAD_NORM_CLIP)
+        #loss=agent.update(batch_size=BATCH_SIZE,GRAD_NORM_CLIP=GRAD_NORM_CLIP)
         agent.soft_update(tau=TARGET_NETWORK_TAU)
 
         avg_reward/=N_SYMBOLS-NUM_TAPS
@@ -238,7 +237,7 @@ def main():
     
     E_out_rounded=cma_utils.apply_entire_filters(E_normalised,converged_filters_rounded)
     #cma_utils.plot_constellation(E_out_rounded)
-    #train()
+    train()
     #E_out=test()
     #cma_utils.plot_constellation(E_out)
 
