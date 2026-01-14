@@ -20,8 +20,9 @@ class ReplayBuffer(object):
     def __len__(self):
         return len(self._storage)
 
-    def add(self, obs_t, action, reward, obs_tp1,done):
-        data = (obs_t, action, reward, obs_tp1,done)
+    def add(self, obs_t, action, reward, obs_tp1, done):
+        data = (obs_t, action, reward, obs_tp1, done)
+
         if self._next_idx >= len(self._storage):
             self._storage.append(data)
         else:
@@ -29,16 +30,16 @@ class ReplayBuffer(object):
         self._next_idx = (self._next_idx + 1) % self._maxsize
 
     def _encode_sample(self, idxes):
-        obses_t, actions, rewards, obses_tp1,dones = [], [], [], [], []
+        obses_t, actions, rewards, obses_tp1, dones = [], [], [], [], []
         for i in idxes:
             data = self._storage[i]
-            obs_t, action, reward, obs_tp1 , done= data
-            obses_t.append(np.asarray(obs_t))
-            actions.append(np.asarray(action))
+            obs_t, action, reward, obs_tp1, done = data
+            obses_t.append(np.array(obs_t, copy=False))
+            actions.append(np.array(action, copy=False))
             rewards.append(reward)
-            obses_tp1.append(np.asarray(obs_tp1))
+            obses_tp1.append(np.array(obs_tp1, copy=False))
             dones.append(done)
-        return np.array(obses_t), np.array(actions), np.array(rewards), np.array(obses_tp1) , np.array(dones)
+        return np.array(obses_t), np.array(actions), np.array(rewards), np.array(obses_tp1), np.array(dones)
 
     def sample(self, batch_size):
         """Sample a batch of experiences.
@@ -102,7 +103,7 @@ class PrioritizedReplayBuffer(ReplayBuffer):
         self._it_sum[idx] = self._max_priority ** self._alpha
         self._it_min[idx] = self._max_priority ** self._alpha
 
-    def _sample_priority(self, batch_size):
+    def _sample_proportional(self, batch_size):
         res = []
         for _ in range(batch_size):
             # TODO(szymon): should we ensure no repeats?
@@ -149,8 +150,9 @@ class PrioritizedReplayBuffer(ReplayBuffer):
         """
         assert beta > 0
 
-        idxes = self._sample_priority(batch_size)
+        idxes = self._sample_proportional(batch_size)
 
+        #print("idxes", idxes)
         weights = []
         p_min = self._it_min.min() / self._it_sum.sum()
         max_weight = (p_min * len(self._storage)) ** (-beta)

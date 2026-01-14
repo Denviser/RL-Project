@@ -5,7 +5,7 @@ import numpy as np
 import random
 import matplotlib.pyplot as plt
 from collections import deque
-from replay_buffer import PrioritizedReplayBuffer,ReplayBuffer
+from replay_buffer import PrioritizedReplayBuffer
 
 if torch.cuda.is_available():
     device = torch.device('cuda')
@@ -77,7 +77,7 @@ class BDQ(nn.Module):
 
 
 class DQNAgent:
-    def __init__(self,state_dim,num_action_branches,num_actions_per_branch,model_path, delta=0.01, gamma=0.99, lr=1e-3,replay_buffer_size=1e6,prioritised_replay_alpha=0.6,prioritised_replay_beta=0.4,prioritised_replay_epsilon=1e-6):
+    def __init__(self,state_dim,num_action_branches,num_actions_per_branch,model_path, delta=0.01, gamma=0.99, lr=1e-3,replay_buffer_size=int(1e6),prioritised_replay_alpha=0.6,prioritised_replay_beta=0.4,prioritised_replay_epsilon=1e-6):
         
         
         self.state_dim = state_dim
@@ -103,7 +103,7 @@ class DQNAgent:
         self.target_net.load_state_dict(self.q_net.state_dict())
 
         self.optimizer = torch.optim.Adam(self.q_net.parameters(), lr=lr)
-        self.replay_buffer = ReplayBuffer(replay_buffer_size)
+        self.replay_buffer = PrioritizedReplayBuffer(replay_buffer_size,alpha=prioritised_replay_alpha)
         self.loss_fn = nn.MSELoss(reduction='none')
 
 
@@ -121,22 +121,50 @@ class DQNAgent:
             
             #Returns shape [num_action_branches]
             return actions.squeeze().cpu().numpy()
+    
+    def get_td_error(self,state,action,reward,next_state,done):
+        state=torch.as_tensor(state,dtype=torch.float32,device=device)
+        action=torch.as_tensor(action,dtype=torch.int64,device=device)
+        reward=torch.as_tensor(reward,dtype=torch.float32,device=device)
+        next_state=torch.as_tensor(next_state,dtype=torch.float32,device=device)
+        done=torch.as_tensor(done,dtype=torch.int64,device=device)
+        
+        state=state.unsqueeze(0)
+        action=action.unsqueeze(0)
+        reward=reward.view(1,1,1)
+        next_state=next_state.unsqueeze(0)
+        done=done.view(1,1,1)
+
+        #This will give shape [B,num_action_branches,1]
+        q_vals = self.q_net(state).gather(dim=2, index=action.unsqueeze(2))
+        next_actions = self.q_net(next_state).argmax(dim=2,keepdims=True)        # Online SELECTS
+        #This will give shape [B,num_action_branches,1]
+        next_q_vals = self.target_net(next_state).gather(dim=2,index=next_actions)  # Target EVALUATES
+
+        targets = reward + self.gamma * next_q_vals*(1-done)
+        td_error=torch.abs(q_vals-targets).mean()
+
+        return td_error.cpu().detach().numpy()
+
 
     def update(self, batch_size=512):
-        if len(self.replay_buffer) < batch_size:
+        if len(self.replay_buffer)< batch_size:
             #returning some large loss
             return 1000
         #The shapes of states is [B,state_dim],actions is [B, num_action_branches, 1],rewards is [B,1]
         #replay_buffer_samples=self.replay_buffer.sample(batch_size,self.prioritised_replay_beta)
 
-        replay_buffer_samples=self.replay_buffer.sample(batch_size)
-        states, actions, rewards, next_states,dones = replay_buffer_samples
+        replay_buffer_samples=self.replay_buffer.sample(batch_size,self.prioritised_replay_beta)
+        states, actions, rewards, next_states,dones,weights,batch_indexs = replay_buffer_samples
+
+        # print("replay buffer samples",replay_buffer_samples)
+        # print("batch indexs are",batch_indexs)
 
         states=torch.as_tensor(states,dtype=torch.float32,device=device)
         actions=torch.as_tensor(actions,dtype=torch.int64,device=device)
         rewards=torch.as_tensor(rewards,dtype=torch.float32,device=device)
         next_states=torch.as_tensor(next_states,dtype=torch.float32,device=device)
-        #weights=torch.as_tensor(weights,dtype=torch.float32,device=device)
+        weights=torch.as_tensor(weights,dtype=torch.float32,device=device)
         dones=torch.as_tensor(dones,dtype=torch.int64,device=device)
         #print("dones is",dones)
         #batch_indexs=torch.as_tensor(batch_indexs,dtype=torch.int64,device=device)
@@ -160,6 +188,7 @@ class DQNAgent:
             dones=dones.view(batch_size,1,1)
             #rewards is of shape [B,1] and gets broadcast to [B,num_action_branches,1]
             targets = rewards + self.gamma * next_q_vals*(1-dones)
+            #print(targets)
         
         #Has dimension [B,num_action_branches,1]
         mse_all = self.loss_fn(q_vals, targets)
@@ -169,15 +198,18 @@ class DQNAgent:
         td_errors=torch.abs(q_vals-targets).mean(dim=(1,2))
 
         #This is a scalar
-        #loss= (weights*td_errors_sq).mean()
-        loss= td_errors_sq.mean()
+        loss= (weights*td_errors_sq).mean()
+        #loss= td_errors_sq.mean()
         self.optimizer.zero_grad()
         loss.backward()
         torch.nn.utils.clip_grad_norm_(self.q_net.parameters(), max_norm=10.0)
         self.optimizer.step()
 
-        new_priorities=td_errors.detach().cpu().numpy() + self.prioritised_replay_eps
-        #self.replay_buffer.update_priorities(batch_indexs,new_priorities)
+        new_td_errors=td_errors.detach().cpu().numpy()+self.prioritised_replay_eps
+        # new_td_errors = np.nan_to_num(new_td_errors, nan=2.0)
+        # if np.isnan(new_td_errors).any():
+        #     print("new_td_errors",new_td_errors)
+        self.replay_buffer.update_priorities(batch_indexs,new_td_errors)
         return loss.item()
 
     def soft_update(self, tau=0.01):

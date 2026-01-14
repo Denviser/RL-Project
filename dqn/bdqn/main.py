@@ -4,7 +4,6 @@ import torch.nn.functional as F
 import numpy as np
 import matplotlib.pyplot as plt
 from models import DQNAgent
-import cma_utils
 import logging
 logging.basicConfig(filename="run.log", level=logging.INFO)
 import gymnasium as gym
@@ -21,9 +20,9 @@ NUM_EPISODES=1000
 PRIORITISED_REPLAY_ALPHA=0.6
 PRIORITISED_REPLAY_BETA=0.4
 PRIORITISED_REPLAY_EPSILON=1e-3
-GREEDY_EPS_INITIAL=1
+GREEDY_EPS_INITIAL=0.5
 GREEDY_EPS_FINAL=0.01
-TARGET_NETWORK_TAU=1e-3
+TARGET_NETWORK_TAU=1e-4
 MODEL_PATH="bdq_qnet.pt"
 BATCH_SIZE=128
 MAX_REWARD=-0.02
@@ -77,6 +76,7 @@ def train(env):
     eps=GREEDY_EPS_INITIAL
     eps_decay=(GREEDY_EPS_INITIAL-GREEDY_EPS_FINAL)/NUM_EPISODES
     
+    counter=0
     for episode in range(NUM_EPISODES):
 
         initial_state,info=env.reset()
@@ -101,22 +101,24 @@ def train(env):
             #print(actions_ind)
             #actions_ind=np.asarray(actions_ind,dtype=np.int64)
             done=terminated or truncated
-            
-            agent.replay_buffer.add(state,actions_ind,reward,next_state,done)
+            #td_error=agent.get_td_error(state,actions_ind,reward,next_state,int(done))
+            #print(td_error)
+            agent.replay_buffer.add(state,actions_ind,reward,next_state,int(done))
 
 
             cum_reward+=reward
             #update the state
             state=next_state
-
+            
             loss=agent.update(batch_size=BATCH_SIZE)
+            agent.soft_update(tau=TARGET_NETWORK_TAU)
             avg_loss+=loss
+            
 
             num_steps+=1
 
         eps=GREEDY_EPS_INITIAL-eps_decay*episode
-        
-        agent.soft_update(tau=TARGET_NETWORK_TAU)
+       # print(agent.replay_buffer.sum_tree.total_priority())
         avg_loss/=num_steps
 
         print(f"Episode {episode+1}, epsilon={eps:.3f}, last_loss={avg_loss:.6f}, reward={cum_reward:.6f}")
@@ -232,7 +234,7 @@ def main():
     #E_out=test()
     #cma_utils.plot_constellation(E_out)
 
-    #train(env)
-    rewards,lengths=test_agent(num_episodes=5,render=True,save_video=False)
+    train(env)
+    #rewards,lengths=test_agent(num_episodes=5,render=True,save_video=False)
 if __name__ == '__main__':
     main()
