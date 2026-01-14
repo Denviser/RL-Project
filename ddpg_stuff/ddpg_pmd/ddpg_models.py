@@ -10,8 +10,6 @@ import random
 import math
 import os
 import time
-import logging
-logging.basicConfig(filename="run.log", level=logging.INFO)
 
 if torch.cuda.is_available():
     device = torch.device('cuda')
@@ -298,7 +296,6 @@ def train_ddpg(use_target_network, use_batch_norm, num_episodes=NUM_EPISODES):
 
         episode_rewards.append(episode_reward)
 
-        logging.info("Episode %d,Reward = %f", episode + 1, episode_reward)
         if (episode + 1) % 10 == 0:
             print(f"Episode {episode + 1}: Reward = {episode_reward}")
         
@@ -388,5 +385,5 @@ def test_agent(num_episodes=10, render=False, save_video=False,use_batch_norm=Fa
     return episode_rewards, episode_lengths
 
 if __name__ == '__main__':
-    train_ddpg(use_target_network=True, use_batch_norm=False)
-    #test_agent(render=True)
+    #train_ddpg(use_target_network=True, use_batch_norm=False)
+    test_agent(render=True)
