@@ -59,7 +59,7 @@ MODEL_PATH="bdq_qnet.pt"
 BATCH_SIZE=256
 GRAD_NORM_CLIP=10
 REWARD_CLIP=-10
-MAX_DISTANCE=1
+MAX_DISTANCE=0.6
 
 class Actor(nn.Module):
     """
@@ -311,10 +311,7 @@ def train_ddpg(use_target_network, use_batch_norm, num_episodes=NUM_EPISODES):
             next_state = state + action
             x_out,y_out=cma_utils.apply_filters(E_in,cur_ind,NUM_TAPS,cma_utils.state_to_filter(next_state,NUM_TAPS))
             reward=cma_utils.compute_reward(x_out,y_out)
-            reward+=step
-            #next_state, reward,terminated,truncated,info_= env.step(action)
-            #print(action)
-            #print(state)
+
             cur_ind+=1
             done = (cur_ind==N_SYMBOLS) or (cma_utils.calculate_state_distance(next_state,initial_state)>MAX_DISTANCE)
 
@@ -333,7 +330,7 @@ def train_ddpg(use_target_network, use_batch_norm, num_episodes=NUM_EPISODES):
 
         logging.info("Episode %d,Reward = %f", episode + 1, episode_reward)
         if (episode + 1) % 10 == 0:
-            print(f"Episode {episode + 1}: Reward = {episode_reward}")
+            print(f"Episode {episode + 1}: Reward = {episode_reward} Final distance = {cma_utils.calculate_state_distance(state,initial_state)}")
         
         if episode%100==0:
             torch.save(agent.actor.state_dict(),ACTOR_MODEL_PATH)
