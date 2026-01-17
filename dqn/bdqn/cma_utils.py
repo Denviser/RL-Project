@@ -19,7 +19,7 @@ def gen_I_Q_qpsk(N_symbols):
 
     return E_in
 
-def apply_pmd(E_in, DGD_ps_per_sqrt_km=1, L_m=10000, N_sections=20, Rs=32e9, SpS=2):
+def apply_pmd(E_in, L_m=10000, N_sections=20, Rs=32e9, SpS=2):
     """This function does pmd between the x and y polarisation and 
     returns back the x and y polarisation after pmd
     
@@ -31,9 +31,9 @@ def apply_pmd(E_in, DGD_ps_per_sqrt_km=1, L_m=10000, N_sections=20, Rs=32e9, SpS
 
 
     N_samples = E_in.shape[0]
-    SD_tau = np.sqrt(3 * np.pi / 8) * DGD_ps_per_sqrt_km
+    #SD_tau = np.sqrt(3 * np.pi / 8) * DGD_ps_per_sqrt_km
 
-    tau = (SD_tau * np.sqrt(L_m * 1e-3) / np.sqrt(N_sections)) * 1e-12
+    #tau = (SD_tau * np.sqrt(L_m * 1e-3) / np.sqrt(N_sections)) * 1e-12
     w = 2 * np.pi * np.fft.fftshift(np.linspace(-0.5, 0.5, N_samples)) * SpS * Rs
 
     E_V = np.fft.fft(E_in[:, 0])
@@ -50,8 +50,8 @@ def apply_pmd(E_in, DGD_ps_per_sqrt_km=1, L_m=10000, N_sections=20, Rs=32e9, SpS
         E2 = U[1, 0].conj() * E_V + U[1, 1].conj() * E_H
 
         # Apply differential delay
-        E1 *= np.exp(1j * w * tau / 2)
-        E2 *= np.exp(-1j * w * tau / 2)
+        #E1 *= np.exp(1j * w * tau / 2)
+        #E2 *= np.exp(-1j * w * tau / 2)
 
         # Rotate by V
         E_V = V[0, 0] * E1 + V[0, 1] * E2
@@ -192,4 +192,5 @@ def compute_reward(x_out,y_out,REWARD_CLIP=-10):
     """For reward we need it to be neg of cma as cma error is minimum for good filters and we want high reward"""
     reward=-cma_error_dualpol(x_out,y_out)
     reward=np.clip(reward,REWARD_CLIP,0)
-    return reward
+    #Make sure reward is bw 0,10
+    return reward+10

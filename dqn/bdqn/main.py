@@ -105,7 +105,8 @@ def round_filters_to_step(filters: dict, step: float = 1e-3) -> dict:
 def calculate_state_distance(cur_state,intial_state):
     return np.linalg.norm(cur_state-intial_state)
 
-def train():
+def train(E_in):
+    """Takes as argument E_in which is normalised and has polarisation mixing"""
     agent=DQNAgent(NUM_TAPS,
                    MODEL_PATH,
                    DELTA,
@@ -119,17 +120,17 @@ def train():
     eps=GREEDY_EPS_INITIAL
     eps_decay=(GREEDY_EPS_INITIAL-GREEDY_EPS_FINAL)/NUM_EPISODES
     for episode in range(NUM_EPISODES):
-        E_created=cma_utils.gen_I_Q_qpsk(N_SYMBOLS)
-        E_after_pmd=cma_utils.apply_pmd(E_created)
-        E_in=cma_utils.normalise(E_after_pmd)
+        #E_created=cma_utils.gen_I_Q_qpsk(N_SYMBOLS)
+        #E_after_pmd=cma_utils.apply_pmd(E_created)
+        #E_in=cma_utils.normalise(E_after_pmd)
 
         initial_filters=initialise_filters(NUM_TAPS)
         intial_state=convert_filter_to_state(initial_filters)
         state=convert_filter_to_state(initial_filters)
         cur_ind=NUM_TAPS-1
-        avg_reward=0
+        episodic_reward=0
 
-        distance_arr=[]
+        #distance_arr=[]
         for cur_ind in range(NUM_TAPS,N_SYMBOLS):
 
             #cur_action has shape [num_action_branches]
@@ -143,7 +144,7 @@ def train():
             next_state=state+directions*DELTA
 
             #Add the distance
-            distance_arr.append(calculate_state_distance(next_state,intial_state))
+            #distance_arr.append(calculate_state_distance(next_state,intial_state))
             #We want to first play the action then recieve the reward for it
             x_out,y_out=cma_utils.apply_filters(E_in,cur_ind,NUM_TAPS,state_to_filter(next_state,NUM_TAPS))
             #compute reward
@@ -153,7 +154,7 @@ def train():
 
             agent.replay_buffer.add(state,cur_actions,reward,next_state)
 
-            avg_reward+=reward
+            episodic_reward+=reward
             #update the state
             state=next_state
 
@@ -163,9 +164,8 @@ def train():
         #loss=agent.update(batch_size=BATCH_SIZE,GRAD_NORM_CLIP=GRAD_NORM_CLIP)
         agent.soft_update(tau=TARGET_NETWORK_TAU)
 
-        avg_reward/=N_SYMBOLS-NUM_TAPS
-        print(f"Episode {episode+1}, epsilon={eps:.3f}, last_loss={loss:.6f}, reward={avg_reward:.6f}")
-        logging.info("episode=%d loss=%f reward=%f \n distances=%s", episode+1, loss,avg_reward,distance_arr)
+        print(f"Episode {episode+1}, epsilon={eps:.3f}, last_loss={loss:.6f}, reward={episodic_reward:.6f}")
+        logging.info("episode=%d loss=%f reward=%f \n", episode+1, loss,episodic_reward)
         torch.save(agent.q_net.state_dict(),MODEL_PATH)
 
 def test():
@@ -237,7 +237,7 @@ def main():
     
     E_out_rounded=cma_utils.apply_entire_filters(E_normalised,converged_filters_rounded)
     #cma_utils.plot_constellation(E_out_rounded)
-    train()
+    train(E_normalised)
     #E_out=test()
     #cma_utils.plot_constellation(E_out)
 
