@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 np.random.seed(42)
+from scipy.optimize import minimize
 
 
 def gen_I_Q_qpsk(N_symbols):
@@ -29,7 +30,6 @@ def apply_pmd(E_in, DGD_ps_per_sqrt_km=1.0, L_m=10000, N_sections=20, Rs=32e9, S
     Sps - samples per symbol
     """
 
-
     N_samples = E_in.shape[0]
     SD_tau = np.sqrt(3 * np.pi / 8) * DGD_ps_per_sqrt_km
 
@@ -49,16 +49,16 @@ def apply_pmd(E_in, DGD_ps_per_sqrt_km=1.0, L_m=10000, N_sections=20, Rs=32e9, S
         U, _, Vh = np.linalg.svd(X)
         V = Vh.conj().T
         # Rotate fields by U†
-        #E1 = U[0, 0].conj() * E_V + U[0, 1].conj() * E_H
-        #E2 = U[1, 0].conj() * E_V + U[1, 1].conj() * E_H
+        E1 = U[0, 0].conj() * E_V + U[0, 1].conj() * E_H
+        E2 = U[1, 0].conj() * E_V + U[1, 1].conj() * E_H
 
         # Apply differential delay
-        E_V *= np.exp(1j * w * tau / 2)
-        E_H *= np.exp(-1j * w * tau / 2)
+        E1 *= np.exp(1j * w * tau / 2)
+        E2 *= np.exp(-1j * w * tau / 2)
 
         # Rotate by V
-        #E_V = V[0, 0] * E1 + V[0, 1] * E2
-        #E_H = V[1, 0] * E1 + V[1, 1] * E2
+        E_V = V[0, 0] * E1 + V[0, 1] * E2
+        E_H = V[1, 0] * E1 + V[1, 1] * E2
        
 
     E_out_x = np.fft.ifft(E_V)
@@ -92,14 +92,12 @@ def plot_constellation(E):
 #     E_out=np.column_stack((result_x,result_y))
 #     return E_out
 
-def cma_python(E_in, num_taps,mu_CMA=0.01):
+def cma_python(E_in, num_taps, mu_CMA=0.01, error_threshold=0.05):
     """
-    This is a python only function to implement the CMA algorithm
-    Here mu_CMA is the learning rate
-    This function returns the output x,y polarisation along with the converged filter taps
+    CMA with moving-average convergence detection (last 10 symbols)
     """
 
-    # Copy and normalize (MATLAB RMS normalization)
+    # ---- Copy and normalize ----
     xpol = E_in[:, 0].astype(complex)
     ypol = E_in[:, 1].astype(complex)
 
@@ -107,9 +105,9 @@ def cma_python(E_in, num_taps,mu_CMA=0.01):
     ypol = ypol / np.sqrt(np.mean(np.abs(ypol)**2))
 
     N = len(xpol)
-    R = 1  # MATLAB fixed modulus
+    R = 1
 
-    # ---- Tap initialization (MATLAB: center tap = ceil(N/2)) ----
+    # ---- Tap initialization ----
     pxx = np.zeros(num_taps, dtype=complex)
     pxy = np.zeros(num_taps, dtype=complex)
     pyx = np.zeros(num_taps, dtype=complex)
@@ -119,22 +117,36 @@ def cma_python(E_in, num_taps,mu_CMA=0.01):
     pxx[center] = 1
     pyy[center] = 1
 
-    # ---- Adaptation loop ----
+    cma_error = {}
+    convergence_symbol = None
+    error_window = []   # last 10 CMA errors
+
     for ii in range(num_taps - 1, N):
 
-        # MATLAB slice: xpol(ii:-1:ii-num_taps+1)
         x_vec = xpol[ii - (num_taps - 1): ii + 1][::-1]
         y_vec = ypol[ii - (num_taps - 1): ii + 1][::-1]
 
-        # ---- Compute estimated symbols ----
         x_cap = np.dot(pxx, x_vec) + np.dot(pxy, y_vec)
         y_cap = np.dot(pyx, x_vec) + np.dot(pyy, y_vec)
 
-        # ---- CMA errors ----
         e_x = R**2 - np.abs(x_cap)**2
         e_y = R**2 - np.abs(y_cap)**2
 
-        # ---- Tap updates (identical to MATLAB) ----
+        e_cma = 0.5 * (np.abs(e_x) + np.abs(e_y))
+        cma_error[ii] = e_cma
+
+        error_window.append(e_cma)
+        if len(error_window) > 10:
+            error_window.pop(0)
+
+        if (
+            convergence_symbol is None
+            and len(error_window) == 10
+            and np.mean(error_window) < error_threshold
+        ):
+            convergence_symbol = ii
+
+        # ---- Tap updates ----
         pxx += 2 * mu_CMA * e_x * x_cap * np.conj(x_vec)
         pxy += 2 * mu_CMA * e_x * x_cap * np.conj(y_vec)
         pyx += 2 * mu_CMA * e_y * y_cap * np.conj(x_vec)
@@ -149,9 +161,261 @@ def cma_python(E_in, num_taps,mu_CMA=0.01):
     x_out = conv_same(xpol, pxx) + conv_same(ypol, pxy)
     y_out = conv_same(xpol, pyx) + conv_same(ypol, pyy)
 
-    return np.column_stack((x_out, y_out)), {
-        'pxx': pxx, 'pxy': pxy, 'pyx': pyx, 'pyy': pyy
-    }
+    return (
+        np.column_stack((x_out, y_out)),
+        {
+            'pxx': pxx, 'pxy': pxy, 'pyx': pyx, 'pyy': pyy,
+            'cma_error': cma_error,
+            'convergence_symbol': convergence_symbol
+        }
+    )
+
+
+
+def mcma_python(
+    E_in,
+    num_taps,
+    mu_CMA,
+    alpha=0.8,
+    error_threshold=0.05,
+    avg_len=10
+):
+    """
+    CMA blind equalizer with true momentum (tap-difference based)
+
+    g(k+1) = g(k) + mu * grad + alpha * (g(k) - g(k-1))
+
+    Returns:
+    - Equalized signal
+    - Dictionary with taps, CMA error evolution, convergence symbol
+    """
+
+    # ---- Copy and normalize ----
+    xpol = E_in[:, 0].astype(complex)
+    ypol = E_in[:, 1].astype(complex)
+
+    xpol /= np.sqrt(np.mean(np.abs(xpol)**2))
+    ypol /= np.sqrt(np.mean(np.abs(ypol)**2))
+
+    N = len(xpol)
+    R = 1.0
+
+    # ---- Tap initialization ----
+    pxx = np.zeros(num_taps, dtype=complex)
+    pxy = np.zeros(num_taps, dtype=complex)
+    pyx = np.zeros(num_taps, dtype=complex)
+    pyy = np.zeros(num_taps, dtype=complex)
+
+    center = (num_taps - 1) // 2
+    pxx[center] = 1.0
+    pyy[center] = 1.0
+
+    # ---- Momentum (Δg = g(k) − g(k−1)) ----
+    dpxx = np.zeros_like(pxx)
+    dpxy = np.zeros_like(pxy)
+    dpyx = np.zeros_like(pyx)
+    dpyy = np.zeros_like(pyy)
+
+    cma_error = {}
+    error_window = []
+    convergence_symbol = None
+
+    # ---- Adaptation loop ----
+    for ii in range(num_taps - 1, N):
+
+        x_vec = xpol[ii - (num_taps - 1): ii + 1][::-1]
+        y_vec = ypol[ii - (num_taps - 1): ii + 1][::-1]
+
+        # Equalizer output
+        x_cap = np.dot(pxx, x_vec) + np.dot(pxy, y_vec)
+        y_cap = np.dot(pyx, x_vec) + np.dot(pyy, y_vec)
+
+        # CMA errors
+        e_x = R**2 - np.abs(x_cap)**2
+        e_y = R**2 - np.abs(y_cap)**2
+
+        e_cma = 0.5 * (np.abs(e_x) + np.abs(e_y))
+        cma_error[ii] = e_cma
+
+        error_window.append(e_cma)
+        if len(error_window) > avg_len:
+            error_window.pop(0)
+
+        if (
+            convergence_symbol is None
+            and len(error_window) == avg_len
+            and np.mean(error_window) < error_threshold
+        ):
+            convergence_symbol = ii
+
+        # ---- CMA gradients ----
+        gxx = 2 * e_x * x_cap * np.conj(x_vec)
+        gxy = 2 * e_x * x_cap * np.conj(y_vec)
+        gyx = 2 * e_y * y_cap * np.conj(x_vec)
+        gyy = 2 * e_y * y_cap * np.conj(y_vec)
+
+        # ---- Momentum update ----
+        dpxx = mu_CMA * gxx + alpha * dpxx
+        dpxy = mu_CMA * gxy + alpha * dpxy
+        dpyx = mu_CMA * gyx + alpha * dpyx
+        dpyy = mu_CMA * gyy + alpha * dpyy
+
+        # ---- Tap update ----
+        pxx += dpxx
+        pxy += dpxy
+        pyx += dpyx
+        pyy += dpyy
+
+    # ---- Final filtering (MATLAB conv(...,'same')) ----
+    def conv_same(sig, taps):
+        full = np.convolve(sig, taps, mode='full')
+        start = (len(taps) - 1) // 2
+        return full[start:start + len(sig)]
+
+    x_out = conv_same(xpol, pxx) + conv_same(ypol, pxy)
+    y_out = conv_same(xpol, pyx) + conv_same(ypol, pyy)
+
+    return (
+        np.column_stack((x_out, y_out)),
+        {
+            "pxx": pxx,
+            "pxy": pxy,
+            "pyx": pyx,
+            "pyy": pyy,
+            "cma_error": cma_error,
+            "convergence_symbol": convergence_symbol,
+        }
+    )
+
+def vmcma_python(
+    E_in,
+    num_taps,
+    mu_CMA,
+    alpha_init=0.8,
+    eta=0.95,
+    gamma=1e-3,
+    alpha_min=0.1,
+    alpha_max=0.95,
+    error_threshold=0.05,
+    avg_len=10
+):
+    """
+    Variable Momentum CMA
+    alpha(k) = eta * alpha(k-1) + gamma * ||grad||^2
+    """
+
+    # ---- Copy and normalize ----
+    xpol = E_in[:, 0].astype(complex)
+    ypol = E_in[:, 1].astype(complex)
+
+    xpol /= np.sqrt(np.mean(np.abs(xpol)**2))
+    ypol /= np.sqrt(np.mean(np.abs(ypol)**2))
+
+    N = len(xpol)
+    R = 1.0
+
+    # ---- Tap initialization ----
+    pxx = np.zeros(num_taps, dtype=complex)
+    pxy = np.zeros(num_taps, dtype=complex)
+    pyx = np.zeros(num_taps, dtype=complex)
+    pyy = np.zeros(num_taps, dtype=complex)
+
+    center = (num_taps - 1) // 2
+    pxx[center] = 1.0
+    pyy[center] = 1.0
+
+    # ---- Momentum state ----
+    dpxx = np.zeros_like(pxx)
+    dpxy = np.zeros_like(pxy)
+    dpyx = np.zeros_like(pyx)
+    dpyy = np.zeros_like(pyy)
+
+    alpha_k = alpha_init
+
+    cma_error = {}
+    error_window = []
+    convergence_symbol = None
+
+    # ---- Adaptation loop ----
+    for ii in range(num_taps - 1, N):
+
+        x_vec = xpol[ii - (num_taps - 1): ii + 1][::-1]
+        y_vec = ypol[ii - (num_taps - 1): ii + 1][::-1]
+
+        # Equalizer output
+        x_cap = np.dot(pxx, x_vec) + np.dot(pxy, y_vec)
+        y_cap = np.dot(pyx, x_vec) + np.dot(pyy, y_vec)
+
+        # CMA error
+        e_x = R**2 - np.abs(x_cap)**2
+        e_y = R**2 - np.abs(y_cap)**2
+
+        e_cma = 0.5 * (np.abs(e_x) + np.abs(e_y))
+        cma_error[ii] = e_cma
+
+        error_window.append(e_cma)
+        if len(error_window) > avg_len:
+            error_window.pop(0)
+
+        if (
+            convergence_symbol is None
+            and len(error_window) == avg_len
+            and np.mean(error_window) < error_threshold
+        ):
+            convergence_symbol = ii
+
+        # ---- CMA gradients ----
+        gxx = 2 * e_x * x_cap * np.conj(x_vec)
+        gxy = 2 * e_x * x_cap * np.conj(y_vec)
+        gyx = 2 * e_y * y_cap * np.conj(x_vec)
+        gyy = 2 * e_y * y_cap * np.conj(y_vec)
+
+        # ---- Gradient energy (for VMCMA) ----
+        grad_norm_sq = (
+            np.vdot(gxx, gxx).real +
+            np.vdot(gxy, gxy).real +
+            np.vdot(gyx, gyx).real +
+            np.vdot(gyy, gyy).real
+        )
+
+        # ---- Update momentum factor ----
+        alpha_k = eta * alpha_k + gamma * grad_norm_sq
+        alpha_k = np.clip(alpha_k, alpha_min, alpha_max)
+
+        # ---- Momentum update ----
+        dpxx = mu_CMA * gxx + alpha_k * dpxx
+        dpxy = mu_CMA * gxy + alpha_k * dpxy
+        dpyx = mu_CMA * gyx + alpha_k * dpyx
+        dpyy = mu_CMA * gyy + alpha_k * dpyy
+
+        # ---- Tap update ----
+        pxx += dpxx
+        pxy += dpxy
+        pyx += dpyx
+        pyy += dpyy
+
+    # ---- Final filtering ----
+    def conv_same(sig, taps):
+        full = np.convolve(sig, taps, mode='full')
+        start = (len(taps) - 1) // 2
+        return full[start:start + len(sig)]
+
+    x_out = conv_same(xpol, pxx) + conv_same(ypol, pxy)
+    y_out = conv_same(xpol, pyx) + conv_same(ypol, pyy)
+
+    return (
+        np.column_stack((x_out, y_out)),
+        {
+            "pxx": pxx,
+            "pxy": pxy,
+            "pyx": pyx,
+            "pyy": pyy,
+            "cma_error": cma_error,
+            "convergence_symbol": convergence_symbol,
+        }
+    )
+
+
 
 def normalise(E):
     """This function takes in the polarisations and normalises them"""
