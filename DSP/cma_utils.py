@@ -521,3 +521,29 @@ def state_to_filter(state: np.ndarray, num_taps: int) -> dict:
 
 def calculate_state_distance(cur_state,intial_state):
     return np.linalg.norm(cur_state-intial_state)
+
+def apply_cfo_both_polarisations(E_in,freq_offset,fs):
+    x_out,y_out=apply_cfo(E_in[:,0],freq_offset,fs),apply_cfo(E_in[:,1],freq_offset,fs)
+    return np.column_stack((x_out,y_out))
+
+def apply_cfo(symbols,freq_offset,fs):
+    phase_shift = np.exp(1j * 2 * np.pi * freq_offset * np.arange(len(symbols)) / fs)
+    #print(phase_shift)
+    return symbols * phase_shift
+
+def cfo_correction_both_pol(E_in,fs):
+    x_out,y_out = fourth_power_cfo_correction(E_in[:,0],fs),fourth_power_cfo_correction(E_in[:,1],fs)
+    return np.column_stack((x_out,y_out))
+
+def fourth_power_cfo_correction(symbols,fs):
+    input_fourth_power = np.pow(symbols,4,dtype=np.complex64)
+    freq_domain_fourth_power = np.fft.fftshift(np.fft.fft(input_fourth_power))
+    
+    max_value_index = np.argmax(np.abs(freq_domain_fourth_power))
+    #print(max_value_index)
+    freq_axis = np.fft.fftshift(np.fft.fftfreq(len(freq_domain_fourth_power),1/fs))
+    #print(freq_axis)
+    freq_offset = freq_axis[max_value_index] / 4
+    #print(freq_offset)
+    corrected_symbols = apply_cfo(symbols,-freq_offset,fs)
+    return corrected_symbols
