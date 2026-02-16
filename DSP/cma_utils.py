@@ -20,6 +20,22 @@ def gen_I_Q_qpsk(N_symbols):
 
     return E_in
 
+def gen_I_Q_16_qam(N_symbols):
+    """This function generates I,Q symbols for two sets of polarisation with unit energy and 
+    return a tensor with shape (N_symbols,2)"""
+
+    levels = np.array([-3, -1, 1, 3]) / np.sqrt(10) #Dividing by root 10 to make average energy 1
+
+    qam_symbols_x = (np.random.choice(levels, N_symbols) +
+                1j * np.random.choice(levels, N_symbols))
+    
+    qam_symbols_y = (np.random.choice(levels, N_symbols) +
+                1j * np.random.choice(levels, N_symbols))
+
+    E_in = np.column_stack((qam_symbols_x, qam_symbols_y))
+
+    return E_in
+
 def apply_pmd(E_in, DGD_ps_per_sqrt_km=1.0, L_m=10000, N_sections=20, Rs=32e9, SpS=2):
     """This function does pmd between the x and y polarisation and 
     returns back the x and y polarisation after pmd
@@ -91,6 +107,90 @@ def plot_constellation(E):
 
 #     E_out=np.column_stack((result_x,result_y))
 #     return E_out
+
+def mma_python(E_in, num_taps, mu_CMA=0.01, error_threshold=0.05, Radius_options = (1/np.sqrt(10))*np.array([np.sqrt(2),np.sqrt(10),np.sqrt(18)])):
+    """
+    CMA with moving-average convergence detection (last 10 symbols)
+    """
+
+    # ---- Copy and normalize ----
+    xpol = E_in[:, 0].astype(complex)
+    ypol = E_in[:, 1].astype(complex)
+
+    xpol = xpol / np.sqrt(np.mean(np.abs(xpol)**2))
+    ypol = ypol / np.sqrt(np.mean(np.abs(ypol)**2))
+
+    N = len(xpol)
+
+    #Setting this for unit energy 16 QAM for now
+
+    # ---- Tap initialization ----
+    pxx = np.zeros(num_taps, dtype=complex)
+    pxy = np.zeros(num_taps, dtype=complex)
+    pyx = np.zeros(num_taps, dtype=complex)
+    pyy = np.zeros(num_taps, dtype=complex)
+
+    center = (num_taps - 1) // 2
+    pxx[center] = 1
+    pyy[center] = 1
+
+    cma_error = {}
+    convergence_symbol = None
+    error_window = []   # last 10 CMA errors
+
+    for ii in range(num_taps - 1, N):
+
+        x_vec = xpol[ii - (num_taps - 1): ii + 1][::-1]
+        y_vec = ypol[ii - (num_taps - 1): ii + 1][::-1]
+
+        x_cap = np.dot(pxx, x_vec) + np.dot(pxy, y_vec)
+        y_cap = np.dot(pyx, x_vec) + np.dot(pyy, y_vec)
+
+        nearest_radius_x = Radius_options[np.argmin(np.abs(np.abs(x_cap) - Radius_options))]
+        nearest_radius_y = Radius_options[np.argmin(np.abs(np.abs(y_cap) - Radius_options))]
+        
+        #print(nearest_radius_x)
+        
+        e_x = nearest_radius_x**2 - np.abs(x_cap)**2
+        e_y = nearest_radius_y**2 - np.abs(y_cap)**2
+
+        e_cma = 0.5 * (np.abs(e_x) + np.abs(e_y))
+        cma_error[ii] = e_cma
+
+        error_window.append(e_cma)
+        if len(error_window) > 10:
+            error_window.pop(0)
+
+        if (
+            convergence_symbol is None
+            and len(error_window) == 10
+            and np.mean(error_window) < error_threshold
+        ):
+            convergence_symbol = ii
+
+        # ---- Tap updates ----
+        pxx += 2 * mu_CMA * e_x * x_cap * np.conj(x_vec)
+        pxy += 2 * mu_CMA * e_x * x_cap * np.conj(y_vec)
+        pyx += 2 * mu_CMA * e_y * y_cap * np.conj(x_vec)
+        pyy += 2 * mu_CMA * e_y * y_cap * np.conj(y_vec)
+
+    # ---- MATLAB conv(..., 'same') ----
+    def conv_same(sig, taps):
+        full = np.convolve(sig, taps, mode='full')
+        start = (len(taps) - 1) // 2
+        return full[start : start + len(sig)]
+
+    x_out = conv_same(xpol, pxx) + conv_same(ypol, pxy)
+    y_out = conv_same(xpol, pyx) + conv_same(ypol, pyy)
+
+    return (
+        np.column_stack((x_out, y_out)),
+        {
+            'pxx': pxx, 'pxy': pxy, 'pyx': pyx, 'pyy': pyy,
+            'cma_error': cma_error,
+            'convergence_symbol': convergence_symbol
+        }
+    )
 
 def cma_python(E_in, num_taps, mu_CMA=0.01, error_threshold=0.05):
     """
