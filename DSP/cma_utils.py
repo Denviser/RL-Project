@@ -94,6 +94,26 @@ def plot_constellation(E):
 
     return
 
+
+def save_constellation(E , save_path_prefix=""):
+    "Here E has a shape (N_symbols,2) and we plot the real and imag part of both the constellation"
+    
+    plt.scatter(E[:,0].real, E[:,0].imag, color='blue', label='Input X-pol', alpha=0.6)
+    
+    if not save_path_prefix == "":
+        plt.savefig(save_path_prefix + "_x_pol.png")
+    else:
+        plt.savefig("x_pol.png")
+    
+    
+    plt.scatter(E[:,1].real, E[:,1].imag, color='blue', label='Input X-pol', alpha=0.6)
+    
+    if not save_path_prefix == "":
+        plt.savefig(save_path_prefix + "_y_pol.png")
+    else:
+        plt.savefig("y_pol.png")
+
+    return
 # def cma_matlab_engine(E_in, num_taps, learning_rate,matlab_function_path):
 #     import matlab.engine
 #     eng = matlab.engine.start_matlab()
@@ -217,7 +237,7 @@ def cma_python(E_in, num_taps, mu_CMA=0.01, error_threshold=0.05):
     pxx[center] = 1
     pyy[center] = 1
 
-    cma_error = {}
+    cma_error = []
     convergence_symbol = None
     error_window = []   # last 10 CMA errors
 
@@ -233,7 +253,7 @@ def cma_python(E_in, num_taps, mu_CMA=0.01, error_threshold=0.05):
         e_y = R**2 - np.abs(y_cap)**2
 
         e_cma = 0.5 * (np.abs(e_x) + np.abs(e_y))
-        cma_error[ii] = e_cma
+        cma_error.append(e_cma)
 
         error_window.append(e_cma)
         if len(error_window) > 10:
@@ -316,7 +336,7 @@ def mcma_python(
     dpyx = np.zeros_like(pyx)
     dpyy = np.zeros_like(pyy)
 
-    cma_error = {}
+    cma_error = []
     error_window = []
     convergence_symbol = None
 
@@ -335,7 +355,7 @@ def mcma_python(
         e_y = R**2 - np.abs(y_cap)**2
 
         e_cma = 0.5 * (np.abs(e_x) + np.abs(e_y))
-        cma_error[ii] = e_cma
+        cma_error.append(e_cma)
 
         error_window.append(e_cma)
         if len(error_window) > avg_len:
