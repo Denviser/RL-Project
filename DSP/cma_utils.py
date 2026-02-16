@@ -515,6 +515,148 @@ def vmcma_python(
         }
     )
 
+def cma_lbfgs(E_in, num_taps,
+                   R=1,
+                   maxiter=200,
+                   maxcor=10):
+
+    xpol = E_in[:, 0].astype(complex)
+    ypol = E_in[:, 1].astype(complex)
+
+    xpol /= np.sqrt(np.mean(np.abs(xpol)**2))
+    ypol /= np.sqrt(np.mean(np.abs(ypol)**2))
+
+    N = len(xpol)
+
+    pxx0 = np.zeros(num_taps, dtype=complex)
+    pxy0 = np.zeros(num_taps, dtype=complex)
+    pyx0 = np.zeros(num_taps, dtype=complex)
+    pyy0 = np.zeros(num_taps, dtype=complex)
+
+    center = (num_taps - 1) // 2
+    pxx0[center] = 1
+    pyy0[center] = 1
+
+    def pack(pxx, pxy, pyx, pyy):
+        w = np.concatenate([pxx, pxy, pyx, pyy])
+        return np.concatenate([w.real, w.imag])
+
+    def unpack(theta):
+        half = len(theta) // 2
+        wc = theta[:half] + 1j * theta[half:]
+
+        pxx = wc[0:num_taps]
+        pxy = wc[num_taps:2*num_taps]
+        pyx = wc[2*num_taps:3*num_taps]
+        pyy = wc[3*num_taps:4*num_taps]
+
+        return pxx, pxy, pyx, pyy
+
+    def cost_function(theta):
+
+        pxx, pxy, pyx, pyy = unpack(theta)
+
+        J = 0.0
+        count = 0
+
+        for ii in range(num_taps - 1, N):
+
+            x_vec = xpol[ii-(num_taps-1):ii+1][::-1]
+            y_vec = ypol[ii-(num_taps-1):ii+1][::-1]
+
+            x_cap = np.dot(pxx, x_vec) + np.dot(pxy, y_vec)
+            y_cap = np.dot(pyx, x_vec) + np.dot(pyy, y_vec)
+
+            ex = (np.abs(x_cap)**2 - R**2)
+            ey = (np.abs(y_cap)**2 - R**2)
+
+            J += ex**2 + ey**2
+            count += 1
+
+        return J / count
+
+    def gradient(theta):
+
+        pxx, pxy, pyx, pyy = unpack(theta)
+
+        g_pxx = np.zeros(num_taps, dtype=complex)
+        g_pxy = np.zeros(num_taps, dtype=complex)
+        g_pyx = np.zeros(num_taps, dtype=complex)
+        g_pyy = np.zeros(num_taps, dtype=complex)
+
+        count = 0
+
+        for ii in range(num_taps - 1, N):
+
+            x_vec = xpol[ii-(num_taps-1):ii+1][::-1]
+            y_vec = ypol[ii-(num_taps-1):ii+1][::-1]
+
+            x_cap = np.dot(pxx, x_vec) + np.dot(pxy, y_vec)
+            y_cap = np.dot(pyx, x_vec) + np.dot(pyy, y_vec)
+
+            ex = (np.abs(x_cap)**2 - R**2)
+            ey = (np.abs(y_cap)**2 - R**2)
+
+            g_pxx += 4 * ex * x_cap * np.conj(x_vec)
+            g_pxy += 4 * ex * x_cap * np.conj(y_vec)
+
+            g_pyx += 4 * ey * y_cap * np.conj(x_vec)
+            g_pyy += 4 * ey * y_cap * np.conj(y_vec)
+
+            count += 1
+
+        # Normalize gradient
+        g_pxx /= count
+        g_pxy /= count
+        g_pyx /= count
+        g_pyy /= count
+
+        grad_complex = np.concatenate([g_pxx, g_pxy, g_pyx, g_pyy])
+
+        return np.concatenate([grad_complex.real,
+                               grad_complex.imag])
+
+
+    theta0 = pack(pxx0, pxy0, pyx0, pyy0)
+
+    result = minimize(
+        fun=cost_function,
+        x0=theta0,
+        jac=gradient,
+        method="L-BFGS-B",
+        options={
+            "maxiter": maxiter,
+            "maxcor": maxcor,
+            "disp": True
+        }
+    )
+
+    pxx_opt, pxy_opt, pyx_opt, pyy_opt = unpack(result.x)
+
+    ii = N - 1  # last symbol index
+
+    x_vec = xpol[ii-(num_taps-1):ii+1][::-1]
+    y_vec = ypol[ii-(num_taps-1):ii+1][::-1]
+
+    x_cap = np.dot(pxx_opt, x_vec) + np.dot(pxy_opt, y_vec)
+    y_cap = np.dot(pyx_opt, x_vec) + np.dot(pyy_opt, y_vec)
+
+    ex_last = (np.abs(x_cap)**2 - R**2)
+    ey_last = (np.abs(y_cap)**2 - R**2)
+
+    # Per-symbol CMA error at final symbol
+    J_last = ex_last**2 + ey_last**2
+    
+    # ---- Final filtering ----
+    def conv_same(sig, taps):
+        full = np.convolve(sig, taps, mode='full')
+        start = (len(taps) - 1) // 2
+        return full[start:start + len(sig)]
+
+    x_out = conv_same(xpol, pxx_opt) + conv_same(ypol, pxy_opt)
+    y_out = conv_same(xpol, pyx_opt) + conv_same(ypol, pyy_opt)
+
+    return (np.column_stack((x_out, y_out)), result.fun, J_last, pxx_opt, pxy_opt, pyx_opt, pyy_opt)
 
 
 def normalise(E):
