@@ -36,7 +36,7 @@ def gen_I_Q_16_qam(N_symbols):
 
     return E_in
 
-def apply_pmd(E_in, DGD_ps_per_sqrt_km=1.0, L_m=10000, N_sections=20, Rs=32e9, SpS=2):
+def apply_pmd(E_in, DGD_ps_per_sqrt_km=1.0, L_m=10000, N_sections=20, Rs=32e9, SpS=2 , seed = 0):
     """This function does pmd between the x and y polarisation and 
     returns back the x and y polarisation after pmd
     
@@ -58,7 +58,11 @@ def apply_pmd(E_in, DGD_ps_per_sqrt_km=1.0, L_m=10000, N_sections=20, Rs=32e9, S
     E_V = np.fft.fft(E_in[:, 0])
     E_H = np.fft.fft(E_in[:, 1])
 
-    np.random.seed(42)
+    if seed:
+        np.random.seed(42)
+    else:
+        pass
+
     for _ in range(N_sections):
         # Random complex coupling matrices (unitary)
         X = np.random.randn(2, 2) + 1j * np.random.randn(2, 2)
@@ -105,6 +109,7 @@ def save_constellation(E , save_path_prefix=""):
     else:
         plt.savefig("x_pol.png")
     
+    plt.clf()
     
     plt.scatter(E[:,1].real, E[:,1].imag, color='blue', label='Input X-pol', alpha=0.6)
     
@@ -113,6 +118,7 @@ def save_constellation(E , save_path_prefix=""):
     else:
         plt.savefig("y_pol.png")
 
+    plt.close("all")
     return
 # def cma_matlab_engine(E_in, num_taps, learning_rate,matlab_function_path):
 #     import matlab.engine
