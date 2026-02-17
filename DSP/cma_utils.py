@@ -685,6 +685,119 @@ def cma_lbfgs(E_in, num_taps,
     return (np.column_stack((x_out, y_out)), result.fun, J_last, pxx_opt, pxy_opt, pyx_opt, pyy_opt)
 
 
+def mcma_python_adam(
+    E_in,
+    num_taps,
+    mu_CMA,
+    beta1=0.9,      # Adam first moment decay
+    beta2=0.999,    # Adam second moment decay
+    eps=1e-8,
+):
+
+    xpol = E_in[:, 0].astype(complex)
+    ypol = E_in[:, 1].astype(complex)
+
+    xpol /= np.sqrt(np.mean(np.abs(xpol)**2))
+    ypol /= np.sqrt(np.mean(np.abs(ypol)**2))
+
+    N = len(xpol)
+    R = 1.0
+
+    pxx = np.zeros(num_taps, dtype=complex)
+    pxy = np.zeros(num_taps, dtype=complex)
+    pyx = np.zeros(num_taps, dtype=complex)
+    pyy = np.zeros(num_taps, dtype=complex)
+
+    center = (num_taps - 1) // 2
+    pxx[center] = 1.0
+    pyy[center] = 1.0
+
+    mpxx = np.zeros_like(pxx)
+    mpxy = np.zeros_like(pxy)
+    mpyx = np.zeros_like(pyx)
+    mpyy = np.zeros_like(pyy)
+
+    vpxx = np.zeros_like(pxx)
+    vpxy = np.zeros_like(pxy)
+    vpyx = np.zeros_like(pyx)
+    vpyy = np.zeros_like(pyy)
+
+    t = 0
+
+    cma_error = {}
+
+    for ii in range(num_taps - 1, N):
+
+        t += 1
+
+        x_vec = xpol[ii - (num_taps - 1): ii + 1][::-1]
+        y_vec = ypol[ii - (num_taps - 1): ii + 1][::-1]
+
+        x_cap = np.dot(pxx, x_vec) + np.dot(pxy, y_vec)
+        y_cap = np.dot(pyx, x_vec) + np.dot(pyy, y_vec)
+
+        e_x = R**2 - np.abs(x_cap)**2
+        e_y = R**2 - np.abs(y_cap)**2
+
+        e_cma = 0.5 * (np.abs(e_x) + np.abs(e_y))
+        cma_error[ii] = e_cma
+
+        gxx = 2 * e_x * x_cap * np.conj(x_vec)
+        gxy = 2 * e_x * x_cap * np.conj(y_vec)
+        gyx = 2 * e_y * y_cap * np.conj(x_vec)
+        gyy = 2 * e_y * y_cap * np.conj(y_vec)
+
+        # ---- First Moment (Adam) ----
+        mpxx = beta1 * mpxx + (1 - beta1) * gxx
+        mpxy = beta1 * mpxy + (1 - beta1) * gxy
+        mpyx = beta1 * mpyx + (1 - beta1) * gyx
+        mpyy = beta1 * mpyy + (1 - beta1) * gyy
+
+        # ---- Second Moment (Adam) ----
+        vpxx = beta2 * vpxx + (1 - beta2) * (np.abs(gxx)**2)
+        vpxy = beta2 * vpxy + (1 - beta2) * (np.abs(gxy)**2)
+        vpyx = beta2 * vpyx + (1 - beta2) * (np.abs(gyx)**2)
+        vpyy = beta2 * vpyy + (1 - beta2) * (np.abs(gyy)**2)
+
+        # ---- Bias correction ----
+        mxx_hat = mpxx / (1 - beta1**t)
+        mxy_hat = mpxy / (1 - beta1**t)
+        myx_hat = mpyx / (1 - beta1**t)
+        myy_hat = mpyy / (1 - beta1**t)
+
+        vxx_hat = vpxx / (1 - beta2**t)
+        vxy_hat = vpxy / (1 - beta2**t)
+        vyx_hat = vpyx / (1 - beta2**t)
+        vyy_hat = vpyy / (1 - beta2**t)
+
+        # ---- Update taps (Adam rule) ----
+        pxx += mu_CMA * mxx_hat / (np.sqrt(vxx_hat) + eps)
+        pxy += mu_CMA * mxy_hat / (np.sqrt(vxy_hat) + eps)
+        pyx += mu_CMA * myx_hat / (np.sqrt(vyx_hat) + eps)
+        pyy += mu_CMA * myy_hat / (np.sqrt(vyy_hat) + eps)
+
+    # ---- Final filtering ----
+    def conv_same(sig, taps):
+        full = np.convolve(sig, taps, mode='full')
+        start = (len(taps) - 1) // 2
+        return full[start:start + len(sig)]
+
+    x_out = conv_same(xpol, pxx) + conv_same(ypol, pxy)
+    y_out = conv_same(xpol, pyx) + conv_same(ypol, pyy)
+
+    return (
+        np.column_stack((x_out, y_out)),
+        {
+            "pxx": pxx,
+            "pxy": pxy,
+            "pyx": pyx,
+            "pyy": pyy,
+            "cma_error": cma_error,
+        }
+    )
+
+
+
 def normalise(E):
     """This function takes in the polarisations and normalises them"""
     E[:,0] = E[:,0] / np.sqrt(np.mean(np.abs(E[:,0])**2))
