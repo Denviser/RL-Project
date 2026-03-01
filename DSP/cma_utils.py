@@ -912,12 +912,24 @@ def apply_cfo(symbols,freq_offset,fs):
     #print(phase_shift)
     return symbols * phase_shift
 
+def apply_awgn(E_in):
+    signal_power = np.mean(np.abs(E_in)**2)
+    print("signal power is", signal_power)
+    
+    noise_power = 0.001
+    
+    noise = (np.sqrt(noise_power/2) *
+            (np.random.randn(*E_in.shape) + 
+             1j*np.random.randn(*E_in.shape)))
+    
+    return E_in + noise
+
 def cfo_correction_both_pol(E_in,fs):
     x_out,y_out = fourth_power_cfo_correction(E_in[:,0],fs),fourth_power_cfo_correction(E_in[:,1],fs)
     return np.column_stack((x_out,y_out))
 
 def fourth_power_cfo_correction(symbols,fs):
-    input_fourth_power = np.pow(symbols,4,dtype=np.complex64)
+    input_fourth_power = np.power(symbols,4,dtype=np.complex64)
     freq_domain_fourth_power = np.fft.fftshift(np.fft.fft(input_fourth_power))
     
     max_value_index = np.argmax(np.abs(freq_domain_fourth_power))
