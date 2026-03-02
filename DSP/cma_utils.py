@@ -184,12 +184,12 @@ def mma_python(E_in, num_taps, mu_CMA=0.01, error_threshold=0.05, Radius_options
         cma_error[ii] = e_cma
 
         error_window.append(e_cma)
-        if len(error_window) > 10:
+        if len(error_window) > 100:
             error_window.pop(0)
 
         if (
             convergence_symbol is None
-            and len(error_window) == 10
+            and len(error_window) == 100
             and np.mean(error_window) < error_threshold
         ):
             convergence_symbol = ii
@@ -296,7 +296,10 @@ def cma_python(E_in, num_taps, mu_CMA=0.01, error_threshold=0.05):
         }
     )
 
-
+def compute_evm(symbol, ideal_constellation):
+    distances = np.abs(symbol - ideal_constellation)
+    closest_symbol = ideal_constellation[np.argmin(distances)]
+    return np.abs(symbol - closest_symbol)
 
 def mcma_python(
     E_in,
@@ -304,7 +307,7 @@ def mcma_python(
     mu_CMA,
     alpha=0.8,
     error_threshold=0.05,
-    avg_len=10
+    avg_len=100
 ):
     """
     CMA blind equalizer with true momentum (tap-difference based)
@@ -342,9 +345,16 @@ def mcma_python(
     dpyx = np.zeros_like(pyx)
     dpyy = np.zeros_like(pyy)
 
+    levels = np.array([-3, -1, 1, 3]) / np.sqrt(10)
+    I, Q = np.meshgrid(levels, levels)
+    ideal_constellation = (I + 1j * Q).flatten()
+
     cma_error = []
     error_window = []
     convergence_symbol = None
+
+    evm_list = []
+    snr_list = []
 
     # ---- Adaptation loop ----
     for ii in range(num_taps - 1, N):
@@ -362,6 +372,16 @@ def mcma_python(
 
         e_cma = 0.5 * (np.abs(e_x) + np.abs(e_y))
         cma_error.append(e_cma)
+
+        evm_x = compute_evm(x_cap, ideal_constellation)
+        evm_y = compute_evm(y_cap, ideal_constellation)
+
+        evm_avg = 0.5 * (evm_x + evm_y)
+        evm_list.append(evm_avg)
+
+        snr_value = 1 / (evm_avg**2 + 1e-12)
+        snr_list.append(snr_value)
+        
 
         error_window.append(e_cma)
         if len(error_window) > avg_len:
@@ -409,6 +429,8 @@ def mcma_python(
             "pyx": pyx,
             "pyy": pyy,
             "cma_error": cma_error,
+            "evm": evm_list,
+            "snr": snr_list,
             "convergence_symbol": convergence_symbol,
         }
     )
@@ -912,12 +934,24 @@ def apply_cfo(symbols,freq_offset,fs):
     #print(phase_shift)
     return symbols * phase_shift
 
+def apply_awgn(E_in, SNR_dB):
+    signal_power = np.mean(np.abs(E_in)**2)
+    print("signal power is", signal_power)
+    SNR_linear = 10**(SNR_dB / 10)
+    noise_power = signal_power / SNR_linear
+    
+    noise = (np.sqrt(noise_power/2) *
+            (np.random.randn(*E_in.shape) + 
+             1j*np.random.randn(*E_in.shape)))
+    
+    return E_in + noise
+
 def cfo_correction_both_pol(E_in,fs):
     x_out,y_out = fourth_power_cfo_correction(E_in[:,0],fs),fourth_power_cfo_correction(E_in[:,1],fs)
     return np.column_stack((x_out,y_out))
 
 def fourth_power_cfo_correction(symbols,fs):
-    input_fourth_power = np.pow(symbols,4,dtype=np.complex64)
+    input_fourth_power = np.power(symbols,4,dtype=np.complex64)
     freq_domain_fourth_power = np.fft.fftshift(np.fft.fft(input_fourth_power))
     
     max_value_index = np.argmax(np.abs(freq_domain_fourth_power))
