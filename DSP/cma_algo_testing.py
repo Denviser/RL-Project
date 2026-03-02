@@ -2,6 +2,7 @@ import numpy as np
 import cma_utils
 import pandas as pd
 import matplotlib.pyplot as plt
+from sklearn.cluster import DBSCAN
 
 N_SYMBOLS = 100000
 NUM_TAPS=51
@@ -52,6 +53,29 @@ def plot_cost_vs_symbols_log(E_after_pmd, num_taps,
     return symbol_list, final_costs
 
 
+def cluster_complex_points(complex_points, eps=0.5, min_samples=5):
+    """
+    Clusters complex numbers by treating them as 2D coordinates.
+    """
+    # 1. Convert complex numbers to 2D real-valued coordinates [Re, Im]
+    data = np.array([[z.real, z.imag] for z in complex_points])
+    
+    # 2. Run DBSCAN
+    db = DBSCAN(eps=eps, min_samples=min_samples).fit(data)
+    labels = db.labels_
+
+    # 3. Organize original complex points by their cluster label
+    clusters = {}
+    for label, original_z in zip(labels, complex_points):
+        if label not in clusters:
+            clusters[label] = []
+        clusters[label].append(original_z)
+        
+    return clusters
+
+# Example Usage:
+# my_points = [[1, 2], [1, 1], [10, 10], [10, 11], [1, 3]]
+# result = cluster_points(my_points, eps=3, min_samples=2)
 def main():
     initial_symbols=cma_utils.gen_I_Q_16_qam(N_SYMBOLS)
     
@@ -69,21 +93,25 @@ def main():
     # symbol_list, final_costs = plot_cost_vs_symbols_log(E_after_pmd, NUM_TAPS, R=1, maxiter=200)
 
     # Doing Mcma
-    symbols_with_pmd_corrected_mcma,info_dict_mcma = cma_utils.mcma_python(E_after_pmd,NUM_TAPS,mu_CMA=1e-4)
+    # symbols_with_pmd_corrected_mcma,info_dict_mcma = cma_utils.mcma_python(E_after_pmd,NUM_TAPS,mu_CMA=1e-4)
 
-    cma_utils.save_constellation(symbols_with_pmd_corrected_mcma,save_path_prefix="mcma_corrected")
+    # cma_utils.save_constellation(symbols_with_pmd_corrected_mcma,save_path_prefix="mcma_corrected")
 
     symbols_with_pmd_corrected_cma,info_dict_cma = cma_utils.cma_python(E_after_pmd,NUM_TAPS,mu_CMA=1e-4)
 
-    cma_utils.save_constellation(symbols_with_pmd_corrected_cma,save_path_prefix="cma_corrected")
+    #cma_utils.save_constellation(symbols_with_pmd_corrected_cma,save_path_prefix="cma_corrected")
     #Close all plots
-    plt.close("all")
-
+    # plt.close("all")
+    #print("symbols_with_pmd_corrected_cma",symbols_with_pmd_corrected_cma.shape)
+    cma_clusters = cluster_complex_points(symbols_with_pmd_corrected_cma[:,0])
+    one_cluster_points = cma_clusters[0]
+    plt.plot(one_cluster_points.real, one_cluster_points.imag, 'ro')
+    #print("cma_clusters",cma_clusters)
     # print(np.array(info_dict_mcma["cma_error"]).shape)
-    plt.title("Error vs Iterations")
-    plt.plot(info_dict_mcma["cma_error"], label = "mcma_error" , alpha = 0.6)
-    plt.plot(info_dict_cma["cma_error"],label = "cma_error" ,alpha = 0.6)
-    plt.legend()
+    # plt.title("Error vs Iterations")
+    # plt.plot(info_dict_mcma["cma_error"], label = "mcma_error" , alpha = 0.6)
+    # plt.plot(info_dict_cma["cma_error"],label = "cma_error" ,alpha = 0.6)
+    # plt.legend()
     plt.show()
 
 if __name__=="__main__": main()

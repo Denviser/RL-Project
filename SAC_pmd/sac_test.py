@@ -215,5 +215,5 @@ if __name__ == "__main__":
     print(converged_filters)
     E_out=cma_utils.apply_entire_filters(E_after_pmd_normalised,converged_filters)
     cma_utils.plot_constellation(E_after_pmd_normalised)
-    #cma_utils.plot_constellation(E_out)
+    cma_utils.plot_constellation(E_out)
     #cma_utils.plot_constellation(E_cma)
