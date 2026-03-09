@@ -41,10 +41,11 @@ def apply_pmd_and_get_optimal_filter_coeffs(E_in, DGD_ps_per_sqrt_km=1.0, L_m=10
         return np.kron(matrix, np.eye(N))
     
     def get_product_of_V_A_U(V,A,U,N):
+        #print("V,A,U",V.shape,A.shape,U.shape)
         V_extended = extend_to_2N_size(V,N)
         A_extended = extend_to_2N_size(A,N)
-        U_extended = extend_to_2N_size(U,N)
-        return np.matmul(np.matmul(V_extended,A_extended),U_extended)
+        #U_extended = extend_to_2N_size(U,N)
+        return np.matmul(np.matmul(V_extended,A_extended),U)
 
     N_samples = E_in.shape[0]
     SD_tau = np.sqrt(3 * np.pi / 8) * DGD_ps_per_sqrt_km
@@ -80,27 +81,46 @@ def apply_pmd_and_get_optimal_filter_coeffs(E_in, DGD_ps_per_sqrt_km=1.0, L_m=10
         E2 *= np.exp(-1j * w * tau / 2)
 
         #print(np.array([[np.exp(1j * w * tau / 2), 0], [0, np.exp(-1j * w * tau / 2)]],dtype=np.complex64))
+        combined_delay = np.concatenate([np.exp(1j * w * tau / 2), np.exp(-1j * w * tau / 2)])
+        delay_matrix = np.diag(combined_delay)
+        #print("delay matrix is",delay_matrix)
         #delay_matrix = np.array([[np.exp(1j * w * tau / 2), 0], [0, np.exp(-1j * w * tau / 2)]],dtype=np.complex64)
         # Rotate by V
         E_V = V[0, 0] * E1 + V[0, 1] * E2
         E_H = V[1, 0] * E1 + V[1, 1] * E2
        
-        Total = np.matmul(get_product_of_V_A_U(V,U,delay_matrix,N_samples),Total)
-
+        Total = np.matmul(get_product_of_V_A_U(V,U.conj().T,delay_matrix,N_samples),Total)
+    #print("Total unitary check is",np.matmul(Total,Total.conj().T))
+    #Getting the inverse of Total which is same as conjugate transpsoe
+    Total=Total.conj().T
     
-    print("Total is",Total)
+    print("Got E_V is",E_V)
+    print()
+    
+    # Extract vectors directly from the full matrix
+    pxx_optimal = np.diagonal(Total, offset=0)[:N_samples]  # First half of main diagonal
+    pxy_optimal = np.diagonal(Total, offset=0)[N_samples:]  # Second half of main diagonal
+
+    # offset=N is the diagonal of the top-right block (B)
+    pyx_optimal = np.diagonal(Total, offset=N_samples)
+
+    # offset=-N is the diagonal of the bottom-left block (C)
+    pyy_optimal = np.diagonal(Total, offset=-N_samples)
     #p#rint("E_v and E_h are",E_V,E_H)
     #print("E_v, E_h from total is",np.matmul(Total,intial_E_V),np.matmul(Total,intiial_E_H))
     E_out_x = np.fft.ifft(E_V)
     E_out_y = np.fft.ifft(E_H)
 
-    return np.column_stack((E_out_x, E_out_y))
+    return np.column_stack((E_out_x, E_out_y)) , {"pxx": pxx_optimal, "pxy": pxy_optimal, "pyx": pyx_optimal, "pyy": pyy_optimal}
 
 
 def main():
-    N_symbols = 100
+    N_symbols = 5
     intial_symbols=cma_utils.gen_I_Q_16_qam(N_symbols)
-    after_pmd = apply_pmd_and_get_optimal_filter_coeffs(intial_symbols, DGD_ps_per_sqrt_km=31.6, L_m=10000, N_sections=20, Rs=32e9, SpS=4)
-    #print(after_pmd)    
+    after_pmd,optimal_filters = apply_pmd_and_get_optimal_filter_coeffs(intial_symbols, DGD_ps_per_sqrt_km=31.6, L_m=10000, N_sections=20, Rs=32e9, SpS=4)
+    #print(after_pmd) 
+    #print(len(optimal_filters['pxx']))
+    corrected_pmd = cma_utils.apply_entire_filters(after_pmd,optimal_filters)
+    cma_utils.save_constellation(corrected_pmd,"corrected_pmd")
 
 if __name__=="__main__": main()

@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 np.random.seed(42)
 from scipy.optimize import minimize
+from sklearn.cluster import KMeans
 
 
 def gen_I_Q_qpsk(N_symbols):
@@ -218,7 +219,7 @@ def mma_python(E_in, num_taps, mu_CMA=0.01, error_threshold=0.05, Radius_options
         }
     )
 
-def cma_python(E_in, num_taps, mu_CMA=0.01, error_threshold=0.05):
+def cma_python(E_in, num_taps, mu_CMA=0.01, error_threshold=0.05,Num_loops = 1):
     """
     CMA with moving-average convergence detection (last 10 symbols)
     """
@@ -247,36 +248,37 @@ def cma_python(E_in, num_taps, mu_CMA=0.01, error_threshold=0.05):
     convergence_symbol = None
     error_window = []   # last 10 CMA errors
 
-    for ii in range(num_taps - 1, N):
+    for k in range(Num_loops):
+        for ii in range(num_taps - 1, N):
 
-        x_vec = xpol[ii - (num_taps - 1): ii + 1][::-1]
-        y_vec = ypol[ii - (num_taps - 1): ii + 1][::-1]
+            x_vec = xpol[ii - (num_taps - 1): ii + 1][::-1]
+            y_vec = ypol[ii - (num_taps - 1): ii + 1][::-1]
 
-        x_cap = np.dot(pxx, x_vec) + np.dot(pxy, y_vec)
-        y_cap = np.dot(pyx, x_vec) + np.dot(pyy, y_vec)
+            x_cap = np.dot(pxx, x_vec) + np.dot(pxy, y_vec)
+            y_cap = np.dot(pyx, x_vec) + np.dot(pyy, y_vec)
 
-        e_x = R**2 - np.abs(x_cap)**2
-        e_y = R**2 - np.abs(y_cap)**2
+            e_x = R**2 - np.abs(x_cap)**2
+            e_y = R**2 - np.abs(y_cap)**2
 
-        e_cma = 0.5 * (np.abs(e_x) + np.abs(e_y))
-        cma_error.append(e_cma)
+            e_cma = 0.5 * (np.abs(e_x) + np.abs(e_y))
+            cma_error.append(e_cma)
 
-        error_window.append(e_cma)
-        if len(error_window) > 10:
-            error_window.pop(0)
+            error_window.append(e_cma)
+            if len(error_window) > 10:
+                error_window.pop(0)
 
-        if (
-            convergence_symbol is None
-            and len(error_window) == 10
-            and np.mean(error_window) < error_threshold
-        ):
-            convergence_symbol = ii
+            if (
+                convergence_symbol is None
+                and len(error_window) == 10
+                and np.mean(error_window) < error_threshold
+            ):
+                convergence_symbol = ii
 
-        # ---- Tap updates ----
-        pxx += 2 * mu_CMA * e_x * x_cap * np.conj(x_vec)
-        pxy += 2 * mu_CMA * e_x * x_cap * np.conj(y_vec)
-        pyx += 2 * mu_CMA * e_y * y_cap * np.conj(x_vec)
-        pyy += 2 * mu_CMA * e_y * y_cap * np.conj(y_vec)
+            # ---- Tap updates ----
+            pxx += 2 * mu_CMA * e_x * x_cap * np.conj(x_vec)
+            pxy += 2 * mu_CMA * e_x * x_cap * np.conj(y_vec)
+            pyx += 2 * mu_CMA * e_y * y_cap * np.conj(x_vec)
+            pyy += 2 * mu_CMA * e_y * y_cap * np.conj(y_vec)
 
     # ---- MATLAB conv(..., 'same') ----
     def conv_same(sig, taps):
@@ -962,3 +964,56 @@ def fourth_power_cfo_correction(symbols,fs):
     #print(freq_offset)
     corrected_symbols = apply_cfo(symbols,-freq_offset,fs)
     return corrected_symbols
+
+
+def cluster_constellations(complex_points: np.ndarray, n_clusters:int =16)-> tuple[dict, np.ndarray]:
+    """
+    Clusters complex points and returns grouped points and their centers 
+    as complex numbers.
+    """
+    # 1. Prepare data (Real = x, Imag = y)
+    data = np.array([[z.real, z.imag] for z in complex_points])
+    
+    # 2. Run KMeans
+    kmeans = KMeans(n_clusters=n_clusters, n_init=10, random_state=42)
+    labels = kmeans.fit_predict(data)
+    
+    # 3. Convert centers back to complex numbers (x + iy)
+    # The order of kmeans.cluster_centers_ matches the labels 0 to (n-1)
+    centers_xy = kmeans.cluster_centers_
+    complex_centers = [complex(c[0], c[1]) for c in centers_xy]
+
+    # 4. Group points by cluster label
+    clusters = {i: [] for i in range(n_clusters)}
+    for label, original_z in zip(labels, complex_points):
+        clusters[label].append(original_z)
+        
+    # Return both the dictionary and the list of complex centers
+    return clusters, np.array(complex_centers)
+
+def calculate_snr(center, points):
+    """This function takes in the center of a cluster and the cluster points and returns the average SNR"""
+    evm_total = 0
+    for point in points:
+        evm_total+=np.square(np.abs(point-center))
+    avg_evm_sq = evm_total/len(points)
+    avg_snr = 10*np.log10(1/avg_evm_sq)
+    return avg_snr
+
+
+def caculate_avg_cluster_snr(clusters:dict,centers:np.ndarray)->float:
+    """This function takes in the dictionary of clusters and their centers and returns the average SNR"""
+    total_snr=0
+    for cluster_ind,cluster in clusters.items():
+        total_snr+=calculate_snr(centers[cluster_ind],cluster)
+    return total_snr/len(clusters)
+
+def cluster_and_get_avg_snr(input_polarisations: np.ndarray, n_clusters:int =16)-> tuple[float,float]:
+    """This function takes in input polarisation forms clusters and returns average SNR for x and y polarisation"""
+    clusters_x,centers_x = cluster_constellations(input_polarisations[:,0],n_clusters)
+    avg_snr_x = caculate_avg_cluster_snr(clusters_x,centers_x)
+
+    clusters_y,centers_y = cluster_constellations(input_polarisations[:,1],n_clusters)
+    avg_snr_y = caculate_avg_cluster_snr(clusters_y,centers_y)
+
+    return avg_snr_x,avg_snr_y
