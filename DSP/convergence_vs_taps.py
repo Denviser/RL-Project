@@ -457,4 +457,5 @@ def plot_convergence_vs_DGD():
     plt.ylabel("Converged Samples")
     plt.savefig("converged_samples_vs_DGD.png")
 
+
 if __name__ == "__main__": plot_convergence_vs_num_taps()
