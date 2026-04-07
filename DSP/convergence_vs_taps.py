@@ -3,10 +3,12 @@ import matplotlib.pyplot as plt
 import cma_utils
 from collections import deque
 from scipy import stats
+from scipy import stats
 
-N_SYMBOLS = 1000000
+N_SYMBOLS = 100000
 NUM_TAPS=51
 
+def plot_conv(cma_error, plot_string):
 def plot_conv(cma_error, plot_string):
 
     # errors = np.array(list(cma_error.values()))
@@ -34,6 +36,7 @@ def plot_conv(cma_error, plot_string):
     plt.ylabel("log10(CMA error)")
     plt.title("log10(CMA Error) vs symbol number (window=15)")
     plt.grid(True)
+    plt.savefig(f"cma_error_smoothed_{plot_string}.png")
     plt.savefig(f"cma_error_smoothed_{plot_string}.png")
 
     plt.close('all')
@@ -356,6 +359,46 @@ def find_convergence_backward(error_signal, tail_size=50000, eval_window=1000, a
 # Assuming 'cma_error' is your 1M length numpy array
 # convergence_idx = find_convergence_backward(cma_error)
 # print(f"Converged at symbol: {convergence_idx}")
+def find_convergence_backward(error_signal, tail_size=50000, eval_window=1000, alpha=2.5):
+    """
+    Finds the convergence index by scanning backwards from the steady-state tail.
+    
+    Parameters:
+    - error_signal: 1D numpy array of the CMA error (logged or raw).
+    - tail_size: Number of samples at the end to define the 'constant' noise floor.
+    - eval_window: Window size to smooth the signal during the backward scan.
+    - alpha: Sensitivity multiplier (how many std deviations above the mean is a breakout).
+    
+    Returns:
+    - index: The point where the signal converged.
+    """
+    
+    # 1. Establish the steady-state baseline from the very end of the array
+    tail_data = error_signal[-tail_size:]
+    mu_ss = np.mean(tail_data)
+    sigma_ss = np.std(tail_data)
+    
+    # Define the breakout threshold (mean + alpha * standard deviations)
+    threshold = mu_ss + alpha * sigma_ss
+    
+    # 2. Smooth the signal to prevent single random spikes from triggering it early
+    kernel = np.ones(eval_window) / eval_window
+    smoothed_signal = np.convolve(error_signal, kernel, mode='valid')
+    
+    # 3. Search backwards from the end of the smoothed signal
+    for i in range(len(smoothed_signal) - 1, -1, -1):
+        if smoothed_signal[i] > threshold:
+            # The signal has climbed out of the flat noise floor.
+            # Add eval_window to account for the convolution offset.
+            return i + eval_window
+            
+    # Returns 0 if no breakout is found
+    return 0
+
+# --- How to use it with your data ---
+# Assuming 'cma_error' is your 1M length numpy array
+# convergence_idx = find_convergence_backward(cma_error)
+# print(f"Converged at symbol: {convergence_idx}")
 def main():
     intial_symbols=cma_utils.gen_I_Q_16_qam(N_SYMBOLS)
     E_after_pmd= cma_utils.apply_pmd(intial_symbols, DGD_ps_per_sqrt_km=31.6, L_m=10000, N_sections=100, Rs=32e9, SpS=4)
@@ -388,12 +431,17 @@ def main():
         #converged_sample = find_cma_convergence(smoothed_log_errors)
         converged_sample_stats= find_convergence_backward(smoothed_log_errors)
         print("converged sample backward detection is",converged_sample_stats) 
+        smoothed_log_errors = plot_conv(cma_error,str(snr_added))
+        #converged_sample = find_cma_convergence(smoothed_log_errors)
+        converged_sample_stats= find_convergence_backward(smoothed_log_errors)
+        print("converged sample backward detection is",converged_sample_stats) 
         #snr_vs_conv[snr_added] = convergence_symbol
         snr_x,snr_y = cma_utils.cluster_and_get_avg_snr(E_out, 16)
         print("SNR is", snr_x)
 
         SNR_arr.append(snr_x)
         #print("SNR is", cma_utils.cluster_and_get_avg_snr(E_out, 16)
+        converged_samples_arr.append(converged_sample_stats)
         converged_samples_arr.append(converged_sample_stats)
     
 
