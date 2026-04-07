@@ -1,6 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
-np.random.seed(42)
+#np.random.seed(42)
 from scipy.optimize import minimize
 from sklearn.cluster import KMeans
 

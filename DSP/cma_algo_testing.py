@@ -3,7 +3,7 @@ import cma_utils
 import pandas as pd
 import matplotlib.pyplot as plt
 
-N_SYMBOLS = 100000
+N_SYMBOLS = 1000000
 NUM_TAPS=51
 
 def plot_cost_vs_symbols_log(E_after_pmd, num_taps,
@@ -51,7 +51,6 @@ def plot_cost_vs_symbols_log(E_after_pmd, num_taps,
 
     return symbol_list, final_costs
 
-
 # Example Usage:
 # my_points = [[1, 2], [1, 1], [10, 10], [10, 11], [1, 3]]
 # result = cluster_points(my_points, eps=3, min_samples=2)
@@ -76,30 +75,30 @@ def main():
 
     # cma_utils.save_constellation(symbols_with_pmd_corrected_mcma,save_path_prefix="mcma_corrected")
 
-    symbols_with_pmd_corrected_cma,info_dict_cma = cma_utils.cma_python(E_after_pmd,NUM_TAPS,mu_CMA=1e-4,Num_loops=1)
+    #symbols_with_pmd_corrected_cma,info_dict_cma = cma_utils.cma_python(E_after_pmd,NUM_TAPS,mu_CMA=1e-4,Num_loops=1)
 
-    cma_utils.save_constellation(symbols_with_pmd_corrected_cma,save_path_prefix="cma_corrected")
+    #cma_utils.save_constellation(symbols_with_pmd_corrected_cma,save_path_prefix="cma_corrected")
     #Close all plots
     # plt.close("all")
     #print("symbols_with_pmd_corrected_cma",symbols_with_pmd_corrected_cma.shape)
 
-    print(cma_utils.cluster_and_get_avg_snr(symbols_with_pmd_corrected_cma))
+    #print(cma_utils.cluster_and_get_avg_snr(symbols_with_pmd_corrected_cma))
     
-    # Num_taps_arr = np.arange(15,200,50)
-    # avg_snr_arr = np.zeros(len(Num_taps_arr))
+    Num_taps_arr = np.arange(100,1100,100)
+    avg_snr_arr = np.zeros(len(Num_taps_arr))
     
-    # for i,num_taps in enumerate(Num_taps_arr):
-    #     symbols_with_pmd_corrected_cma,info_dict_cma = cma_utils.cma_python(E_after_pmd,num_taps,mu_CMA=1e-4,Num_loops=10)
+    for i,num_taps in enumerate(Num_taps_arr):
+        symbols_with_pmd_corrected_cma,info_dict_cma = cma_utils.cma_python(E_after_pmd,num_taps,mu_CMA=1e-5,Num_loops=1)
+        #cma_utils.save_constellation(symbols_with_pmd_corrected_cma,save_path_prefix="cma_corrected_taps_"+str(num_taps))
+        avg_snr_arr[i] = cma_utils.cluster_and_get_avg_snr(symbols_with_pmd_corrected_cma)[0] #This only returns avg SNR for x polarisation
 
-    #     cma_clusters,centers = cluster_constellation_clean(symbols_with_pmd_corrected_cma[:,0])
-    #     avg_snr_arr[i] = caculate_avg_cluster_snr(cma_clusters,centers)
-
+        print("Done with num_taps",num_taps)
     
-    # plt.plot(Num_taps_arr,avg_snr_arr)
-    # plt.xlabel("Number of taps")
-    # plt.ylabel("Average SNR")
-    # plt.legend()
-    # plt.savefig("avg_snr_vs_num_taps.png")
+    plt.plot(Num_taps_arr,avg_snr_arr)
+    plt.xlabel("Number of taps")
+    plt.ylabel("Average SNR")
+    plt.legend()
+    plt.savefig("avg_snr_vs_num_taps_extended_large.png")
 
     #print("cma_clusters",cma_clusters)
     # print(np.array(info_dict_mcma["cma_error"]).shape)
@@ -107,5 +106,5 @@ def main():
     # plt.plot(info_dict_mcma["cma_error"], label = "mcma_error" , alpha = 0.6)
     # plt.plot(info_dict_cma["cma_error"],label = "cma_error" ,alpha = 0.6)
     # plt.legend()
-    
+
 if __name__=="__main__": main()
