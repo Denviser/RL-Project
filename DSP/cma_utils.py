@@ -135,7 +135,7 @@ def save_constellation(E , save_path_prefix=""):
 #     E_out=np.column_stack((result_x,result_y))
 #     return E_out
 
-def mma_python(E_in, num_taps, mu_CMA=0.01, error_threshold=0.05, Radius_options = (1/np.sqrt(10))*np.array([np.sqrt(2),np.sqrt(10),np.sqrt(18)])):
+def mma_python(E_in, num_taps, mu_CMA=0.01, Radius_options = (1/np.sqrt(10))*np.array([np.sqrt(2),np.sqrt(10),np.sqrt(18)])):
     """
     CMA with moving-average convergence detection (last 10 symbols)
     """
@@ -161,7 +161,7 @@ def mma_python(E_in, num_taps, mu_CMA=0.01, error_threshold=0.05, Radius_options
     pxx[center] = 1
     pyy[center] = 1
 
-    cma_error = {}
+    cma_error = []
     convergence_symbol = None
     error_window = []   # last 10 CMA errors
 
@@ -182,18 +182,7 @@ def mma_python(E_in, num_taps, mu_CMA=0.01, error_threshold=0.05, Radius_options
         e_y = nearest_radius_y**2 - np.abs(y_cap)**2
 
         e_cma = 0.5 * (np.abs(e_x) + np.abs(e_y))
-        cma_error[ii] = e_cma
-
-        error_window.append(e_cma)
-        if len(error_window) > 100:
-            error_window.pop(0)
-
-        if (
-            convergence_symbol is None
-            and len(error_window) == 100
-            and np.mean(error_window) < error_threshold
-        ):
-            convergence_symbol = ii
+        cma_error.append(e_cma)
 
         # ---- Tap updates ----
         pxx += 2 * mu_CMA * e_x * x_cap * np.conj(x_vec)
@@ -214,8 +203,7 @@ def mma_python(E_in, num_taps, mu_CMA=0.01, error_threshold=0.05, Radius_options
         np.column_stack((x_out, y_out)),
         {
             'pxx': pxx, 'pxy': pxy, 'pyx': pyx, 'pyy': pyy,
-            'cma_error': cma_error,
-            'convergence_symbol': convergence_symbol
+            'cma_error': cma_error        
         }
     )
 
