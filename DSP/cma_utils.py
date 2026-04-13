@@ -220,7 +220,7 @@ def cma_python(E_in, num_taps, mu_CMA=0.01):
         np.column_stack((x_out, y_out)),
         {
             'pxx': pxx, 'pxy': pxy, 'pyx': pyx, 'pyy': pyy,
-            'cma_error': cma_error,
+            'cma_error': cma_error
         }
     )
 
@@ -908,7 +908,7 @@ def cluster_and_get_avg_snr(input_polarisations: np.ndarray, n_clusters:int =16)
     return avg_snr_x,avg_snr_y
 
 def plot_conv(cma_error):
-
+    """This function takes in the CMA error and plots it on a log scale with a moving average window of 200 symbols and returns the smoothed log error values"""
     errors = np.array(list(cma_error))
     eps = 1e-12
     errors = np.maximum(errors, eps)
@@ -917,11 +917,14 @@ def plot_conv(cma_error):
     window = 200
     smooth_log_errors = np.convolve(log_errors, np.ones(window) / window, mode="valid")
     
-    plt.figure(figsize=(12, 6))
-    plt.plot(smooth_log_errors, linewidth=2)
-    plt.xlabel("Symbol number")
-    plt.ylabel("log10(CMA error)")
-    plt.title("log10(CMA Error) vs symbol number (window=15)")
+    #Uncomment the below lines to see the plot of convergence (log10(CMA error) vs symbol number)
+
+    # plt.figure(figsize=(12, 6))
+    # plt.plot(smooth_log_errors, linewidth=2)
+    # plt.xlabel("Symbol number")
+    # plt.ylabel("log10(CMA error)")
+    # plt.title("log10(CMA Error) vs symbol number (window=15)")
+    # plt.close()  # Close the plot to prevent it from displaying in interactive environments
     return smooth_log_errors
 
 
