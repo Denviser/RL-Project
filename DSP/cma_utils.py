@@ -13,12 +13,10 @@ def gen_I_Q_qpsk(N_symbols):
 
     qam_symbols_x = (np.random.choice(levels, N_symbols) +
                 1j * np.random.choice(levels, N_symbols))
-    
     qam_symbols_y = (np.random.choice(levels, N_symbols) +
                 1j * np.random.choice(levels, N_symbols))
 
     E_in = np.column_stack((qam_symbols_x, qam_symbols_y))
-
     return E_in
 
 def gen_I_Q_16_qam(N_symbols):
@@ -29,12 +27,9 @@ def gen_I_Q_16_qam(N_symbols):
 
     qam_symbols_x = (np.random.choice(levels, N_symbols) +
                 1j * np.random.choice(levels, N_symbols))
-    
     qam_symbols_y = (np.random.choice(levels, N_symbols) +
                 1j * np.random.choice(levels, N_symbols))
-
     E_in = np.column_stack((qam_symbols_x, qam_symbols_y))
-
     return E_in
 
 def apply_pmd(E_in, DGD_ps_per_sqrt_km=1.0, L_m=10000, N_sections=20, Rs=32e9, SpS=2 , seed = 0):
@@ -51,8 +46,6 @@ def apply_pmd(E_in, DGD_ps_per_sqrt_km=1.0, L_m=10000, N_sections=20, Rs=32e9, S
     SD_tau = np.sqrt(3 * np.pi / 8) * DGD_ps_per_sqrt_km
 
     tau = (SD_tau * np.sqrt(L_m * 1e-3) / np.sqrt(N_sections)) * 1e-12
-    #print(tau)
-    #tau=2/(SpS*Rs)
     print("tau_Ts",tau*Rs)
     w = 2 * np.pi * np.fft.fftshift(np.linspace(-0.5, 0.5, N_samples)) * Rs
 
@@ -88,17 +81,28 @@ def apply_pmd(E_in, DGD_ps_per_sqrt_km=1.0, L_m=10000, N_sections=20, Rs=32e9, S
     return np.column_stack((E_out_x, E_out_y))
 
 def plot_constellation(E):
-    "Here E has a shape (N_symbols,2) and we plot the real and imag part of both the constellation"
-    
-    plt.scatter(E[:,0].real, E[:,0].imag, color='blue', label='Input X-pol', alpha=0.6)
-    plt.show()
-    
-    
-    plt.scatter(E[:,1].real, E[:,1].imag, color='blue', label='Input X-pol', alpha=0.6)
-    plt.show()
+    """
+    E: shape (N_symbols, 2)
+    Plots X and Y polarization constellations side-by-side
+    """
 
-    return
+    fig, axes = plt.subplots(1, 2, figsize=(8, 4))  # smaller figure
+    axes[0].scatter(E[:,0].real, E[:,0].imag, s=8, alpha=0.6)
+    axes[0].set_title("X")
+    axes[0].set_xlabel("I")
+    axes[0].set_ylabel("Q")
+    axes[0].set_aspect('equal', 'box')
+    axes[0].grid(True)
 
+    axes[1].scatter(E[:,1].real, E[:,1].imag, s=8, alpha=0.6)
+    axes[1].set_title("Y")
+    axes[1].set_xlabel("I")
+    axes[1].set_ylabel("Q")
+    axes[1].set_aspect('equal', 'box')
+    axes[1].grid(True)
+
+    plt.tight_layout()
+    plt.show()
 
 def save_constellation(E , save_path_prefix=""):
     "Here E has a shape (N_symbols,2) and we plot the real and imag part of both the constellation"
@@ -121,49 +125,23 @@ def save_constellation(E , save_path_prefix=""):
 
     plt.close("all")
     return
-# def cma_matlab_engine(E_in, num_taps, learning_rate,matlab_function_path):
-#     import matlab.engine
-#     eng = matlab.engine.start_matlab()
-#     eng.addpath(matlab_function_path, nargout=0)
 
-#     ml_x_pol=matlab.double(E_in[:,0].tolist(),is_complex=True)
-#     ml_x_pol=eng.transpose(ml_x_pol)
-#     ml_y_pol=matlab.double(E_in[:,1].tolist(),is_complex=True)
-#     ml_y_pol=eng.transpose(ml_y_pol)
-#     result_x,result_y=eng.f_DSP_pol_demux_CMA(ml_x_pol,ml_y_pol,num_taps,learning_rate,nargout=2)
-
-#     E_out=np.column_stack((result_x,result_y))
-#     return E_out
-
-def mma_python(E_in, num_taps, mu_CMA=0.01, error_threshold=0.05, Radius_options = (1/np.sqrt(10))*np.array([np.sqrt(2),np.sqrt(10),np.sqrt(18)])):
+def mma_python(E_in, num_taps, mu_CMA=0.01, Radius_options = (1/np.sqrt(10))*np.array([np.sqrt(2),np.sqrt(10),np.sqrt(18)])):
     """
     CMA with moving-average convergence detection (last 10 symbols)
     """
+    E_norm = normalise(E_in.copy())
 
-    # ---- Copy and normalize ----
-    xpol = E_in[:, 0].astype(complex)
-    ypol = E_in[:, 1].astype(complex)
-
-    xpol = xpol / np.sqrt(np.mean(np.abs(xpol)**2))
-    ypol = ypol / np.sqrt(np.mean(np.abs(ypol)**2))
-
+    xpol = E_norm[:, 0]
+    ypol = E_norm[:, 1]
     N = len(xpol)
 
     #Setting this for unit energy 16 QAM for now
 
-    # ---- Tap initialization ----
-    pxx = np.zeros(num_taps, dtype=complex)
-    pxy = np.zeros(num_taps, dtype=complex)
-    pyx = np.zeros(num_taps, dtype=complex)
-    pyy = np.zeros(num_taps, dtype=complex)
-
-    center = (num_taps - 1) // 2
-    pxx[center] = 1
-    pyy[center] = 1
+    filters = initialise_filters(num_taps)
+    pxx, pyy, pxy, pyx = filters['pxx'], filters['pyy'], filters['pxy'], filters['pyx']
 
     cma_error = {}
-    convergence_symbol = None
-    error_window = []   # last 10 CMA errors
 
     for ii in range(num_taps - 1, N):
 
@@ -184,72 +162,38 @@ def mma_python(E_in, num_taps, mu_CMA=0.01, error_threshold=0.05, Radius_options
         e_cma = 0.5 * (np.abs(e_x) + np.abs(e_y))
         cma_error[ii] = e_cma
 
-        error_window.append(e_cma)
-        if len(error_window) > 100:
-            error_window.pop(0)
-
-        if (
-            convergence_symbol is None
-            and len(error_window) == 100
-            and np.mean(error_window) < error_threshold
-        ):
-            convergence_symbol = ii
-
         # ---- Tap updates ----
         pxx += 2 * mu_CMA * e_x * x_cap * np.conj(x_vec)
         pxy += 2 * mu_CMA * e_x * x_cap * np.conj(y_vec)
         pyx += 2 * mu_CMA * e_y * y_cap * np.conj(x_vec)
         pyy += 2 * mu_CMA * e_y * y_cap * np.conj(y_vec)
 
-    # ---- MATLAB conv(..., 'same') ----
-    def conv_same(sig, taps):
-        full = np.convolve(sig, taps, mode='full')
-        start = (len(taps) - 1) // 2
-        return full[start : start + len(sig)]
-
     x_out = conv_same(xpol, pxx) + conv_same(ypol, pxy)
     y_out = conv_same(xpol, pyx) + conv_same(ypol, pyy)
 
     return (
         np.column_stack((x_out, y_out)),
-        {
-            'pxx': pxx, 'pxy': pxy, 'pyx': pyx, 'pyy': pyy,
-            'cma_error': cma_error,
-            'convergence_symbol': convergence_symbol
-        }
+        {'pxx': pxx, 'pxy': pxy, 'pyx': pyx, 'pyy': pyy,'cma_error': cma_error,}
     )
 
-def cma_python(E_in, num_taps, mu_CMA=0.01, error_threshold=0.05,Num_loops = 1):
+def cma_python(E_in, num_taps, mu_CMA=0.01):
     """
     CMA with moving-average convergence detection (last 10 symbols)
     """
+    E_norm = normalise(E_in.copy())
 
-    # ---- Copy and normalize ----
-    xpol = E_in[:, 0].astype(complex)
-    ypol = E_in[:, 1].astype(complex)
-
-    xpol = xpol / np.sqrt(np.mean(np.abs(xpol)**2))
-    ypol = ypol / np.sqrt(np.mean(np.abs(ypol)**2))
+    xpol = E_norm[:, 0]
+    ypol = E_norm[:, 1]
 
     N = len(xpol)
     R = 1
 
-    # ---- Tap initialization ----
-    pxx = np.zeros(num_taps, dtype=complex)
-    pxy = np.zeros(num_taps, dtype=complex)
-    pyx = np.zeros(num_taps, dtype=complex)
-    pyy = np.zeros(num_taps, dtype=complex)
-
-    center = (num_taps - 1) // 2
-    pxx[center] = 1
-    pyy[center] = 1
+    filters = initialise_filters(num_taps)
+    pxx, pyy, pxy, pyx = filters['pxx'], filters['pyy'], filters['pxy'], filters['pyx']
 
     cma_error = []
-    convergence_symbol = None
-    error_window = []   # last 10 CMA errors
 
-    for k in range(Num_loops):
-        for ii in range(num_taps - 1, N):
+    for ii in range(num_taps - 1, N):
 
             x_vec = xpol[ii - (num_taps - 1): ii + 1][::-1]
             y_vec = ypol[ii - (num_taps - 1): ii + 1][::-1]
@@ -263,28 +207,11 @@ def cma_python(E_in, num_taps, mu_CMA=0.01, error_threshold=0.05,Num_loops = 1):
             e_cma = 0.5 * (np.abs(e_x) + np.abs(e_y))
             cma_error.append(e_cma)
 
-            error_window.append(e_cma)
-            if len(error_window) > 10:
-                error_window.pop(0)
-
-            if (
-                convergence_symbol is None
-                and len(error_window) == 10
-                and np.mean(error_window) < error_threshold
-            ):
-                convergence_symbol = ii
-
             # ---- Tap updates ----
             pxx += 2 * mu_CMA * e_x * x_cap * np.conj(x_vec)
             pxy += 2 * mu_CMA * e_x * x_cap * np.conj(y_vec)
             pyx += 2 * mu_CMA * e_y * y_cap * np.conj(x_vec)
             pyy += 2 * mu_CMA * e_y * y_cap * np.conj(y_vec)
-
-    # ---- MATLAB conv(..., 'same') ----
-    def conv_same(sig, taps):
-        full = np.convolve(sig, taps, mode='full')
-        start = (len(taps) - 1) // 2
-        return full[start : start + len(sig)]
 
     x_out = conv_same(xpol, pxx) + conv_same(ypol, pxy)
     y_out = conv_same(xpol, pyx) + conv_same(ypol, pyy)
@@ -294,7 +221,6 @@ def cma_python(E_in, num_taps, mu_CMA=0.01, error_threshold=0.05,Num_loops = 1):
         {
             'pxx': pxx, 'pxy': pxy, 'pyx': pyx, 'pyy': pyy,
             'cma_error': cma_error,
-            'convergence_symbol': convergence_symbol
         }
     )
 
@@ -303,43 +229,24 @@ def compute_evm(symbol, ideal_constellation):
     closest_symbol = ideal_constellation[np.argmin(distances)]
     return np.abs(symbol - closest_symbol)
 
-def mcma_python(
-    E_in,
-    num_taps,
-    mu_CMA,
-    alpha=0.8,
-    error_threshold=0.05,
-    avg_len=100
-):
+def mcma_python(E_in, num_taps, mu_CMA, alpha=0.8):
     """
     CMA blind equalizer with true momentum (tap-difference based)
-
     g(k+1) = g(k) + mu * grad + alpha * (g(k) - g(k-1))
-
     Returns:
     - Equalized signal
     - Dictionary with taps, CMA error evolution, convergence symbol
     """
+    E_norm = normalise(E_in.copy())
 
-    # ---- Copy and normalize ----
-    xpol = E_in[:, 0].astype(complex)
-    ypol = E_in[:, 1].astype(complex)
-
-    xpol /= np.sqrt(np.mean(np.abs(xpol)**2))
-    ypol /= np.sqrt(np.mean(np.abs(ypol)**2))
+    xpol = E_norm[:, 0]
+    ypol = E_norm[:, 1]
 
     N = len(xpol)
     R = 1.0
 
-    # ---- Tap initialization ----
-    pxx = np.zeros(num_taps, dtype=complex)
-    pxy = np.zeros(num_taps, dtype=complex)
-    pyx = np.zeros(num_taps, dtype=complex)
-    pyy = np.zeros(num_taps, dtype=complex)
-
-    center = (num_taps - 1) // 2
-    pxx[center] = 1.0
-    pyy[center] = 1.0
+    filters = initialise_filters(num_taps)
+    pxx, pyy, pxy, pyx = filters['pxx'], filters['pyy'], filters['pxy'], filters['pyx']
 
     # ---- Momentum (Δg = g(k) − g(k−1)) ----
     dpxx = np.zeros_like(pxx)
@@ -347,16 +254,7 @@ def mcma_python(
     dpyx = np.zeros_like(pyx)
     dpyy = np.zeros_like(pyy)
 
-    levels = np.array([-3, -1, 1, 3]) / np.sqrt(10)
-    I, Q = np.meshgrid(levels, levels)
-    ideal_constellation = (I + 1j * Q).flatten()
-
     cma_error = []
-    error_window = []
-    convergence_symbol = None
-
-    evm_list = []
-    snr_list = []
 
     # ---- Adaptation loop ----
     for ii in range(num_taps - 1, N):
@@ -374,27 +272,6 @@ def mcma_python(
 
         e_cma = 0.5 * (np.abs(e_x) + np.abs(e_y))
         cma_error.append(e_cma)
-
-        evm_x = compute_evm(x_cap, ideal_constellation)
-        evm_y = compute_evm(y_cap, ideal_constellation)
-
-        evm_avg = 0.5 * (evm_x + evm_y)
-        evm_list.append(evm_avg)
-
-        snr_value = 1 / (evm_avg**2 + 1e-12)
-        snr_list.append(snr_value)
-        
-
-        error_window.append(e_cma)
-        if len(error_window) > avg_len:
-            error_window.pop(0)
-
-        if (
-            convergence_symbol is None
-            and len(error_window) == avg_len
-            and np.mean(error_window) < error_threshold
-        ):
-            convergence_symbol = ii
 
         # ---- CMA gradients ----
         gxx = 2 * e_x * x_cap * np.conj(x_vec)
@@ -414,27 +291,12 @@ def mcma_python(
         pyx += dpyx
         pyy += dpyy
 
-    # ---- Final filtering (MATLAB conv(...,'same')) ----
-    def conv_same(sig, taps):
-        full = np.convolve(sig, taps, mode='full')
-        start = (len(taps) - 1) // 2
-        return full[start:start + len(sig)]
-
     x_out = conv_same(xpol, pxx) + conv_same(ypol, pxy)
     y_out = conv_same(xpol, pyx) + conv_same(ypol, pyy)
 
     return (
         np.column_stack((x_out, y_out)),
-        {
-            "pxx": pxx,
-            "pxy": pxy,
-            "pyx": pyx,
-            "pyy": pyy,
-            "cma_error": cma_error,
-            "evm": evm_list,
-            "snr": snr_list,
-            "convergence_symbol": convergence_symbol,
-        }
+        {"pxx": pxx, "pxy": pxy, "pyx": pyx, "pyy": pyy, "cma_error": cma_error}
     )
 
 def vmcma_python(
@@ -446,33 +308,21 @@ def vmcma_python(
     gamma=1e-3,
     alpha_min=0.1,
     alpha_max=0.95,
-    error_threshold=0.05,
-    avg_len=10
 ):
     """
     Variable Momentum CMA
     alpha(k) = eta * alpha(k-1) + gamma * ||grad||^2
     """
+    E_norm = normalise(E_in.copy())
 
-    # ---- Copy and normalize ----
-    xpol = E_in[:, 0].astype(complex)
-    ypol = E_in[:, 1].astype(complex)
-
-    xpol /= np.sqrt(np.mean(np.abs(xpol)**2))
-    ypol /= np.sqrt(np.mean(np.abs(ypol)**2))
+    xpol = E_norm[:, 0]
+    ypol = E_norm[:, 1]
 
     N = len(xpol)
     R = 1.0
 
-    # ---- Tap initialization ----
-    pxx = np.zeros(num_taps, dtype=complex)
-    pxy = np.zeros(num_taps, dtype=complex)
-    pyx = np.zeros(num_taps, dtype=complex)
-    pyy = np.zeros(num_taps, dtype=complex)
-
-    center = (num_taps - 1) // 2
-    pxx[center] = 1.0
-    pyy[center] = 1.0
+    filters = initialise_filters(num_taps)
+    pxx, pyy, pxy, pyx = filters['pxx'], filters['pyy'], filters['pxy'], filters['pyx']
 
     # ---- Momentum state ----
     dpxx = np.zeros_like(pxx)
@@ -483,8 +333,6 @@ def vmcma_python(
     alpha_k = alpha_init
 
     cma_error = {}
-    error_window = []
-    convergence_symbol = None
 
     # ---- Adaptation loop ----
     for ii in range(num_taps - 1, N):
@@ -502,17 +350,6 @@ def vmcma_python(
 
         e_cma = 0.5 * (np.abs(e_x) + np.abs(e_y))
         cma_error[ii] = e_cma
-
-        error_window.append(e_cma)
-        if len(error_window) > avg_len:
-            error_window.pop(0)
-
-        if (
-            convergence_symbol is None
-            and len(error_window) == avg_len
-            and np.mean(error_window) < error_threshold
-        ):
-            convergence_symbol = ii
 
         # ---- CMA gradients ----
         gxx = 2 * e_x * x_cap * np.conj(x_vec)
@@ -544,48 +381,25 @@ def vmcma_python(
         pyx += dpyx
         pyy += dpyy
 
-    # ---- Final filtering ----
-    def conv_same(sig, taps):
-        full = np.convolve(sig, taps, mode='full')
-        start = (len(taps) - 1) // 2
-        return full[start:start + len(sig)]
-
     x_out = conv_same(xpol, pxx) + conv_same(ypol, pxy)
     y_out = conv_same(xpol, pyx) + conv_same(ypol, pyy)
 
     return (
         np.column_stack((x_out, y_out)),
-        {
-            "pxx": pxx,
-            "pxy": pxy,
-            "pyx": pyx,
-            "pyy": pyy,
-            "cma_error": cma_error,
-            "convergence_symbol": convergence_symbol,
-        }
+        {"pxx": pxx, "pxy": pxy, "pyx": pyx, "pyy": pyy, "cma_error": cma_error,}
     )
 
-def cma_lbfgs(E_in, num_taps,
-                   R=1,
-                   maxiter=200,
-                   maxcor=10):
+def cma_lbfgs(E_in, num_taps, R=1, maxiter=200, maxcor=10):
+    
+    E_norm = normalise(E_in.copy())
 
-    xpol = E_in[:, 0].astype(complex)
-    ypol = E_in[:, 1].astype(complex)
-
-    xpol /= np.sqrt(np.mean(np.abs(xpol)**2))
-    ypol /= np.sqrt(np.mean(np.abs(ypol)**2))
+    xpol = E_norm[:, 0]
+    ypol = E_norm[:, 1]
 
     N = len(xpol)
 
-    pxx0 = np.zeros(num_taps, dtype=complex)
-    pxy0 = np.zeros(num_taps, dtype=complex)
-    pyx0 = np.zeros(num_taps, dtype=complex)
-    pyy0 = np.zeros(num_taps, dtype=complex)
-
-    center = (num_taps - 1) // 2
-    pxx0[center] = 1
-    pyy0[center] = 1
+    filters = initialise_filters(num_taps)
+    pxx0, pyy0, pxy0, pyx0 = filters['pxx'], filters['pyy'], filters['pxy'], filters['pyx']
 
     def pack(pxx, pxy, pyx, pyy):
         w = np.concatenate([pxx, pxy, pyx, pyy])
@@ -683,58 +497,27 @@ def cma_lbfgs(E_in, num_taps,
 
     pxx_opt, pxy_opt, pyx_opt, pyy_opt = unpack(result.x)
 
-    ii = N - 1  # last symbol index
-
-    x_vec = xpol[ii-(num_taps-1):ii+1][::-1]
-    y_vec = ypol[ii-(num_taps-1):ii+1][::-1]
-
-    x_cap = np.dot(pxx_opt, x_vec) + np.dot(pxy_opt, y_vec)
-    y_cap = np.dot(pyx_opt, x_vec) + np.dot(pyy_opt, y_vec)
-
-    ex_last = (np.abs(x_cap)**2 - R**2)
-    ey_last = (np.abs(y_cap)**2 - R**2)
-
-    # Per-symbol CMA error at final symbol
-    J_last = ex_last**2 + ey_last**2
-    
-    # ---- Final filtering ----
-    def conv_same(sig, taps):
-        full = np.convolve(sig, taps, mode='full')
-        start = (len(taps) - 1) // 2
-        return full[start:start + len(sig)]
-
     x_out = conv_same(xpol, pxx_opt) + conv_same(ypol, pxy_opt)
     y_out = conv_same(xpol, pyx_opt) + conv_same(ypol, pyy_opt)
 
-    return (np.column_stack((x_out, y_out)), result.fun, J_last, pxx_opt, pxy_opt, pyx_opt, pyy_opt)
+    return (np.column_stack((x_out, y_out)), result.fun, pxx_opt, pxy_opt, pyx_opt, pyy_opt)
 
 
-def mcma_python_adam(
-    E_in,
-    num_taps,
-    mu_CMA,
+def mcma_python_adam(E_in, num_taps, mu_CMA, eps = 1e-8,
     beta1=0.9,      # Adam first moment decay
     beta2=0.999,    # Adam second moment decay
-    eps=1e-8,
-):
+    ):
+    
+    E_norm = normalise(E_in.copy())
 
-    xpol = E_in[:, 0].astype(complex)
-    ypol = E_in[:, 1].astype(complex)
-
-    xpol /= np.sqrt(np.mean(np.abs(xpol)**2))
-    ypol /= np.sqrt(np.mean(np.abs(ypol)**2))
+    xpol = E_norm[:, 0]
+    ypol = E_norm[:, 1]
 
     N = len(xpol)
     R = 1.0
 
-    pxx = np.zeros(num_taps, dtype=complex)
-    pxy = np.zeros(num_taps, dtype=complex)
-    pyx = np.zeros(num_taps, dtype=complex)
-    pyy = np.zeros(num_taps, dtype=complex)
-
-    center = (num_taps - 1) // 2
-    pxx[center] = 1.0
-    pyy[center] = 1.0
+    filters = initialise_filters(num_taps)
+    pxx, pyy, pxy, pyx = filters['pxx'], filters['pyy'], filters['pxy'], filters['pyx']
 
     mpxx = np.zeros_like(pxx)
     mpxy = np.zeros_like(pxy)
@@ -800,38 +583,163 @@ def mcma_python_adam(
         pyx += mu_CMA * myx_hat / (np.sqrt(vyx_hat) + eps)
         pyy += mu_CMA * myy_hat / (np.sqrt(vyy_hat) + eps)
 
-    # ---- Final filtering ----
-    def conv_same(sig, taps):
-        full = np.convolve(sig, taps, mode='full')
-        start = (len(taps) - 1) // 2
-        return full[start:start + len(sig)]
-
     x_out = conv_same(xpol, pxx) + conv_same(ypol, pxy)
     y_out = conv_same(xpol, pyx) + conv_same(ypol, pyy)
 
     return (
         np.column_stack((x_out, y_out)),
-        {
-            "pxx": pxx,
-            "pxy": pxy,
-            "pyx": pyx,
-            "pyy": pyy,
-            "cma_error": cma_error,
-        }
+        {"pxx": pxx, "pxy": pxy, "pyx": pyx, "pyy": pyy, "cma_error": cma_error,}
     )
 
 
 
+def lbfgs_with_cma_start(E_in, num_taps, cma_iters=100, mu=1e-3, maxiter=200, maxcor=10):
+
+    E_norm = normalise(E_in.copy())
+
+    xpol = E_norm[:, 0]
+    ypol = E_norm[:, 1]
+
+    N = len(xpol)
+    R = 1.0
+
+    filters = initialise_filters(num_taps)
+    pxx, pyy, pxy, pyx = filters['pxx'], filters['pyy'], filters['pxy'], filters['pyx']
+
+    # cma warm start:
+    for _ in range(cma_iters):
+        for ii in range(num_taps - 1, N):
+
+            x_vec = xpol[ii-(num_taps-1):ii+1][::-1]
+            y_vec = ypol[ii-(num_taps-1):ii+1][::-1]
+
+            x_cap = np.dot(pxx, x_vec) + np.dot(pxy, y_vec)
+            y_cap = np.dot(pyx, x_vec) + np.dot(pyy, y_vec)
+
+            ex = (np.abs(x_cap)**2 - R**2)
+            ey = (np.abs(y_cap)**2 - R**2)
+
+            # Gradient (same form as your batch version)
+            g_pxx = 4 * ex * x_cap * np.conj(x_vec)
+            g_pxy = 4 * ex * x_cap * np.conj(y_vec)
+            g_pyx = 4 * ey * y_cap * np.conj(x_vec)
+            g_pyy = 4 * ey * y_cap * np.conj(y_vec)
+
+            # SGD update
+            pxx -= mu * g_pxx
+            pxy -= mu * g_pxy
+            pyx -= mu * g_pyx
+            pyy -= mu * g_pyy
+
+    def pack(pxx, pxy, pyx, pyy):
+        w = np.concatenate([pxx, pxy, pyx, pyy])
+        return np.concatenate([w.real, w.imag])
+
+    def unpack(theta):
+        half = len(theta) // 2
+        wc = theta[:half] + 1j * theta[half:]
+
+        pxx = wc[0:num_taps]
+        pxy = wc[num_taps:2*num_taps]
+        pyx = wc[2*num_taps:3*num_taps]
+        pyy = wc[3*num_taps:4*num_taps]
+
+        return pxx, pxy, pyx, pyy
+
+    def cost_function(theta):
+
+        pxx, pxy, pyx, pyy = unpack(theta)
+
+        J = 0.0
+        count = 0
+
+        for ii in range(num_taps - 1, N):
+
+            x_vec = xpol[ii-(num_taps-1):ii+1][::-1]
+            y_vec = ypol[ii-(num_taps-1):ii+1][::-1]
+
+            x_cap = np.dot(pxx, x_vec) + np.dot(pxy, y_vec)
+            y_cap = np.dot(pyx, x_vec) + np.dot(pyy, y_vec)
+
+            ex = (np.abs(x_cap)**2 - R**2)
+            ey = (np.abs(y_cap)**2 - R**2)
+
+            J += ex**2 + ey**2
+            count += 1
+
+        return J / count
+
+    def gradient(theta):
+
+        pxx, pxy, pyx, pyy = unpack(theta)
+        g_pxx = np.zeros(num_taps, dtype=complex)
+        g_pxy = np.zeros(num_taps, dtype=complex)
+        g_pyx = np.zeros(num_taps, dtype=complex)
+        g_pyy = np.zeros(num_taps, dtype=complex)
+
+        count = 0
+
+        for ii in range(num_taps - 1, N):
+
+            x_vec = xpol[ii-(num_taps-1):ii+1][::-1]
+            y_vec = ypol[ii-(num_taps-1):ii+1][::-1]
+
+            x_cap = np.dot(pxx, x_vec) + np.dot(pxy, y_vec)
+            y_cap = np.dot(pyx, x_vec) + np.dot(pyy, y_vec)
+
+            ex = (np.abs(x_cap)**2 - R**2)
+            ey = (np.abs(y_cap)**2 - R**2)
+
+            g_pxx += 4 * ex * x_cap * np.conj(x_vec)
+            g_pxy += 4 * ex * x_cap * np.conj(y_vec)
+            g_pyx += 4 * ey * y_cap * np.conj(x_vec)
+            g_pyy += 4 * ey * y_cap * np.conj(y_vec)
+
+            count += 1
+
+        g_pxx /= count
+        g_pxy /= count
+        g_pyx /= count
+        g_pyy /= count
+
+        grad_complex = np.concatenate([g_pxx, g_pxy, g_pyx, g_pyy])
+
+        return np.concatenate([grad_complex.real,
+                               grad_complex.imag])
+
+    theta0 = pack(pxx, pxy, pyx, pyy)
+
+    result = minimize(
+        fun=cost_function,
+        x0=theta0,
+        jac=gradient,
+        method="L-BFGS-B",
+        options={
+            "maxiter": maxiter,
+            "maxcor": maxcor,
+            "disp": True
+        }
+    )
+
+    pxx_opt, pxy_opt, pyx_opt, pyy_opt = unpack(result.x)
+
+    x_out = conv_same(xpol, pxx_opt) + conv_same(ypol, pxy_opt)
+    y_out = conv_same(xpol, pyx_opt) + conv_same(ypol, pyy_opt)
+
+    return (np.column_stack((x_out, y_out)),
+            result.fun,
+            pxx_opt, pxy_opt, pyx_opt, pyy_opt)
+
+
 def normalise(E):
-    """This function takes in the polarisations and normalises them"""
-    E[:,0] = E[:,0] / np.sqrt(np.mean(np.abs(E[:,0])**2))
-    E[:,1] = E[:,1] / np.sqrt(np.mean(np.abs(E[:,1])**2))
+    E = E.astype(complex)
+    E[:,0] /= np.sqrt(np.mean(np.abs(E[:,0])**2))
+    E[:,1] /= np.sqrt(np.mean(np.abs(E[:,1])**2))
     return E
 
 def apply_filters(E_in,cur_ind,num_taps,filters):
     """This function basically just does convolution with filters and gives output at current index
     NOTE: Make sure that E_in to this function is normalised"""
-    
 
     x=E_in[:,0][cur_ind-num_taps+1:cur_ind+1][::-1]
     y=E_in[:,1][cur_ind-num_taps+1:cur_ind+1][::-1]
@@ -841,18 +749,10 @@ def apply_filters(E_in,cur_ind,num_taps,filters):
     
     return x_out,y_out
 
-def apply_entire_filters(E_in,filters):
-    """This function basically just does convolution with filters and gives output E"""
-
-    def conv_same(sig, taps):
-        full = np.convolve(sig, taps, mode='full')
-        start = (len(taps) - 1) // 2
-        return full[start : start + len(sig)]
-
-    x_out = conv_same(E_in[:,0], filters['pxx']) + conv_same(E_in[:,1], filters['pxy'])
-    y_out = conv_same(E_in[:,0], filters['pyx']) + conv_same(E_in[:,1], filters['pyy'])
-
-    return np.column_stack((x_out, y_out))
+def conv_same(sig, taps):
+    full = np.convolve(sig, taps, mode='full')
+    start = (len(taps) - 1) // 2
+    return full[start : start + len(sig)]
 
 def cma_error_dualpol(x_out,y_out,Radius=1):
     """This function gives CMA error for dual polarisation and sums them"""
@@ -868,17 +768,12 @@ def compute_reward(x_out,y_out,REWARD_CLIP=-10):
 
 def initialise_filters(NUM_TAPS):
     filters={}
-    filters['pxx'] = np.zeros(NUM_TAPS, dtype=complex)
+    filters['pxx'] = np.zeros(NUM_TAPS, dtype = complex)
     filters['pxx'][NUM_TAPS//2] = 1
-
-    filters['pxy'] = np.zeros(NUM_TAPS,dtype=complex)
-    
-    filters['pyx'] = np.zeros(NUM_TAPS,dtype=complex)
-    
-    filters['pyy'] = np.zeros(NUM_TAPS)
+    filters['pxy'] = np.zeros(NUM_TAPS, dtype = complex)
+    filters['pyx'] = np.zeros(NUM_TAPS, dtype = complex)
+    filters['pyy'] = np.zeros(NUM_TAPS, dtype = complex)
     filters['pyy'][NUM_TAPS//2] = 1
-    
-    
     return filters
 
 
@@ -954,17 +849,12 @@ def cfo_correction_both_pol(E_in,fs):
 
 def fourth_power_cfo_correction(symbols,fs):
     input_fourth_power = np.power(symbols,4,dtype=np.complex64)
-    freq_domain_fourth_power = np.fft.fftshift(np.fft.fft(input_fourth_power))
-    
+    freq_domain_fourth_power = np.fft.fftshift(np.fft.fft(input_fourth_power))    
     max_value_index = np.argmax(np.abs(freq_domain_fourth_power))
-    #print(max_value_index)
     freq_axis = np.fft.fftshift(np.fft.fftfreq(len(freq_domain_fourth_power),1/fs))
-    #print(freq_axis)
     freq_offset = freq_axis[max_value_index] / 4
-    #print(freq_offset)
     corrected_symbols = apply_cfo(symbols,-freq_offset,fs)
     return corrected_symbols
-
 
 def cluster_constellations(complex_points: np.ndarray, n_clusters:int =16)-> tuple[dict, np.ndarray]:
     """
@@ -1000,7 +890,6 @@ def calculate_snr(center, points):
     avg_snr = 10*np.log10(1/avg_evm_sq)
     return avg_snr
 
-
 def caculate_avg_cluster_snr(clusters:dict,centers:np.ndarray)->float:
     """This function takes in the dictionary of clusters and their centers and returns the average SNR"""
     total_snr=0
@@ -1017,3 +906,57 @@ def cluster_and_get_avg_snr(input_polarisations: np.ndarray, n_clusters:int =16)
     avg_snr_y = caculate_avg_cluster_snr(clusters_y,centers_y)
 
     return avg_snr_x,avg_snr_y
+
+def plot_conv(cma_error):
+
+    errors = np.array(list(cma_error))
+    eps = 1e-12
+    errors = np.maximum(errors, eps)
+    log_errors = np.log10(errors)
+
+    window = 200
+    smooth_log_errors = np.convolve(log_errors, np.ones(window) / window, mode="valid")
+    
+    plt.figure(figsize=(12, 6))
+    plt.plot(smooth_log_errors, linewidth=2)
+    plt.xlabel("Symbol number")
+    plt.ylabel("log10(CMA error)")
+    plt.title("log10(CMA Error) vs symbol number (window=15)")
+    return smooth_log_errors
+
+
+def find_convergence_backward(error_signal, tail_size=50000, eval_window=1000, alpha=2.5):
+    """
+    Finds the convergence index by scanning backwards from the steady-state tail.
+    
+    Parameters:
+    - error_signal: 1D numpy array of the CMA error (logged or raw).
+    - tail_size: Number of samples at the end to define the 'constant' noise floor.
+    - eval_window: Window size to smooth the signal during the backward scan.
+    - alpha: Sensitivity multiplier (how many std deviations above the mean is a breakout).
+    
+    Returns:
+    - index: The point where the signal converged.
+    """
+    
+    # 1. Establish the steady-state baseline from the very end of the array
+    tail_data = error_signal[-tail_size:]
+    mu_ss = np.mean(tail_data)
+    sigma_ss = np.std(tail_data)
+    
+    # Define the breakout threshold (mean + alpha * standard deviations)
+    threshold = mu_ss + alpha * sigma_ss
+    
+    # 2. Smooth the signal to prevent single random spikes from triggering it early
+    kernel = np.ones(eval_window) / eval_window
+    smoothed_signal = np.convolve(error_signal, kernel, mode='valid')
+    
+    # 3. Search backwards from the end of the smoothed signal
+    for i in range(len(smoothed_signal) - 1, -1, -1):
+        if smoothed_signal[i] > threshold:
+            # The signal has climbed out of the flat noise floor.
+            # Add eval_window to account for the convolution offset.
+            return i + eval_window
+            
+    # Returns 0 if no breakout is found
+    return 0

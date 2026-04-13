@@ -9,7 +9,6 @@ N_SYMBOLS = 100000
 NUM_TAPS=51
 
 def plot_conv(cma_error, plot_string):
-def plot_conv(cma_error, plot_string):
 
     # errors = np.array(list(cma_error.values()))
     errors = np.array(list(cma_error))
@@ -76,7 +75,6 @@ def cma_python_with_cma_error_convergence(E_in, num_taps, mu_CMA=0.01, error_thr
     old_error_window = deque(maxlen=num_symbols_store//2)   # last 10 CMA errors
     recent_error_window = deque(maxlen=num_symbols_store//2)   # last 10 CMA errors
     #this counts how long we have relative error to be less than threshold
-
 
     #print("initial_filters",initial_filters)
     #print("shape is",initial_filters.shape)
@@ -433,9 +431,8 @@ def main():
         print("converged sample backward detection is",converged_sample_stats) 
         smoothed_log_errors = plot_conv(cma_error,str(snr_added))
         #converged_sample = find_cma_convergence(smoothed_log_errors)
-        converged_sample_stats= find_convergence_backward(smoothed_log_errors)
-        print("converged sample backward detection is",converged_sample_stats) 
-        #snr_vs_conv[snr_added] = convergence_symbol
+        converged_sample_stats = find_convergence_backward(smoothed_log_errors)
+        print("converged sample backward detection is", converged_sample_stats) 
         snr_x,snr_y = cma_utils.cluster_and_get_avg_snr(E_out, 16)
         print("SNR is", snr_x)
 
