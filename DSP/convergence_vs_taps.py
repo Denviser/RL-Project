@@ -119,9 +119,8 @@ def main():
         print("converged sample backward detection is",converged_sample_stats) 
         smoothed_log_errors = plot_conv(cma_error,str(snr_added))
         #converged_sample = find_cma_convergence(smoothed_log_errors)
-        converged_sample_stats= find_convergence_backward(smoothed_log_errors)
-        print("converged sample backward detection is",converged_sample_stats) 
-        #snr_vs_conv[snr_added] = convergence_symbol
+        converged_sample_stats = find_convergence_backward(smoothed_log_errors)
+        print("converged sample backward detection is", converged_sample_stats) 
         snr_x,snr_y = cma_utils.cluster_and_get_avg_snr(E_out, 16)
         print("SNR is", snr_x)
 
