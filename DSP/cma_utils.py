@@ -130,6 +130,14 @@ def mma_python(E_in, num_taps, mu_CMA=0.01, Radius_options = (1/np.sqrt(10))*np.
     """
     CMA with moving-average convergence detection (last 10 symbols)
     """
+    def get_nearest_radius(x):
+        decision_radiuses = [Radius_options[0] + 1/3*(Radius_options[1]-Radius_options[0]), Radius_options[1] + 2/3*(Radius_options[2]-Radius_options[1])]
+        if np.abs(x) < decision_radiuses[0]:
+            return Radius_options[0]
+        elif np.abs(x) < decision_radiuses[1]:
+            return Radius_options[1]
+        else:
+            return Radius_options[2]
     E_norm = normalise(E_in.copy())
 
     xpol = E_norm[:, 0]
@@ -141,7 +149,7 @@ def mma_python(E_in, num_taps, mu_CMA=0.01, Radius_options = (1/np.sqrt(10))*np.
     filters = initialise_filters(num_taps)
     pxx, pyy, pxy, pyx = filters['pxx'], filters['pyy'], filters['pxy'], filters['pyx']
 
-    cma_error = {}
+    cma_error = []
 
     for ii in range(num_taps - 1, N):
 
@@ -151,16 +159,16 @@ def mma_python(E_in, num_taps, mu_CMA=0.01, Radius_options = (1/np.sqrt(10))*np.
         x_cap = np.dot(pxx, x_vec) + np.dot(pxy, y_vec)
         y_cap = np.dot(pyx, x_vec) + np.dot(pyy, y_vec)
 
-        nearest_radius_x = Radius_options[np.argmin(np.abs(np.abs(x_cap) - Radius_options))]
-        nearest_radius_y = Radius_options[np.argmin(np.abs(np.abs(y_cap) - Radius_options))]
-        
+        nearest_radius_x = get_nearest_radius(x_cap)
+        nearest_radius_y = get_nearest_radius(y_cap)
+
         #print(nearest_radius_x)
         
         e_x = nearest_radius_x**2 - np.abs(x_cap)**2
         e_y = nearest_radius_y**2 - np.abs(y_cap)**2
 
         e_cma = 0.5 * (np.abs(e_x) + np.abs(e_y))
-        cma_error[ii] = e_cma
+        cma_error.append(e_cma)
 
         # ---- Tap updates ----
         pxx += 2 * mu_CMA * e_x * x_cap * np.conj(x_vec)
@@ -173,8 +181,9 @@ def mma_python(E_in, num_taps, mu_CMA=0.01, Radius_options = (1/np.sqrt(10))*np.
 
     return (
         np.column_stack((x_out, y_out)),
-        {'pxx': pxx, 'pxy': pxy, 'pyx': pyx, 'pyy': pyy,'cma_error': cma_error,}
+        {'pxx': pxx, 'pxy': pxy, 'pyx': pyx, 'pyy': pyy,'cma_error': cma_error}
     )
+
 
 def cma_python(E_in, num_taps, mu_CMA=0.01):
     """
