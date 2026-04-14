@@ -4,7 +4,6 @@ import matplotlib.pyplot as plt
 from scipy.optimize import minimize
 from sklearn.cluster import KMeans
 
-
 def gen_I_Q_qpsk(N_symbols):
     """This function generates I,Q symbols for two sets of polarisation with unit energy and
     return a tensor with shape (N_symbols,2)"""
@@ -731,6 +730,118 @@ def lbfgs_with_cma_start(E_in, num_taps, cma_iters=100, mu=1e-3, maxiter=200, ma
             pxx_opt, pxy_opt, pyx_opt, pyy_opt)
 
 
+def slicer_qpsk(x):
+    """Hard decision for QPSK"""
+    return (np.sign(np.real(x)) + 1j*np.sign(np.imag(x))) / np.sqrt(2)
+
+def slicer_16qam(x):
+    re = np.real(x)
+    im = np.imag(x)
+
+    def decision(v):
+        if v < -2:
+            return -3
+        elif v < 0:
+            return -1
+        elif v < 2:
+            return 1
+        else:
+            return 3
+
+    re_hat = np.vectorize(decision)(re)
+    im_hat = np.vectorize(decision)(im)
+
+    return (re_hat + 1j * im_hat) / np.sqrt(10)
+
+def lms_cfo_joint(E_in, num_taps, mu=1e-4, mu_f=1e-8, fs=2e9):
+    """
+    Joint LMS equalizer + CFO estimation
+    mu   : step size for taps
+    mu_f : step size for CFO
+    """
+
+    E_norm = normalise(E_in.copy())
+    xpol = E_norm[:, 0]
+    ypol = E_norm[:, 1]
+
+    N = len(xpol)
+
+    filters = initialise_filters(num_taps)
+    pxx, pyy, pxy, pyx = filters['pxx'], filters['pyy'], filters['pxy'], filters['pyx']
+
+    # CFO estimate
+    f_est = 0.0
+
+    error_list = []
+
+    for ii in range(num_taps - 1, N):
+
+        # Input vectors
+        x_vec = xpol[ii - (num_taps - 1): ii + 1][::-1]
+        y_vec = ypol[ii - (num_taps - 1): ii + 1][::-1]
+
+        # Equalizer output
+        x_cap = np.dot(pxx, x_vec) + np.dot(pxy, y_vec)
+        y_cap = np.dot(pyx, x_vec) + np.dot(pyy, y_vec)
+
+        # CFO correction
+        n = ii
+        phase = np.exp(-1j * 2 * np.pi * f_est * n/fs)
+
+        x_corr = x_cap * phase
+        y_corr = y_cap * phase
+
+        # Decisions (QAM)
+        d_x = slicer_16qam(x_corr)
+        d_y = slicer_16qam(y_corr)
+
+        # Error
+        e_x = x_corr - d_x
+        e_y = y_corr - d_y
+
+        error_list.append(0.5 * ((np.abs(e_x))**2 + (np.abs(e_y))**2))
+
+        # ---- LMS TAP UPDATES ----
+        pxx -= mu * e_x * np.conj(x_vec) * np.conj(phase)
+        pxy -= mu * e_x * np.conj(y_vec) * np.conj(phase)
+        pyx -= mu * e_y * np.conj(x_vec) * np.conj(phase)
+        pyy -= mu * e_y * np.conj(y_vec) * np.conj(phase)
+
+        # ---- CFO GRADIENT ----
+        # dy/df = -j (2π n / fs) * y_corr
+        coeff = -1j * 2 * np.pi * n/fs
+
+        grad_fx = np.real(e_x * np.conj(coeff * x_corr))
+        grad_fy = np.real(e_y * np.conj(coeff * y_corr))
+
+        grad_f = grad_fx + grad_fy
+
+        # Update CFO
+        f_est -= mu_f * grad_f * fs
+
+    # Final output
+    x_out = conv_same(xpol, pxx) + conv_same(ypol, pxy)
+    y_out = conv_same(xpol, pyx) + conv_same(ypol, pyy)
+
+    # f_est = 2e3
+
+    n = np.arange(len(x_out))
+    phase = np.exp(-1j * 2 * np.pi * f_est * n/fs)
+
+    x_out *= phase
+    y_out *= phase
+
+    return (
+        np.column_stack((x_out, y_out)),
+        {
+            'pxx': pxx, 'pxy': pxy,
+            'pyx': pyx, 'pyy': pyy,
+            'f_est': f_est,
+            'error': error_list
+        }
+    )
+
+
 def normalise(E):
     E = E.astype(complex)
     E[:,0] /= np.sqrt(np.mean(np.abs(E[:,0])**2))
@@ -775,7 +886,6 @@ def initialise_filters(NUM_TAPS):
     filters['pyy'] = np.zeros(NUM_TAPS, dtype = complex)
     filters['pyy'][NUM_TAPS//2] = 1
     return filters
-
 
 def _interleave_real_imag(x: np.ndarray) -> np.ndarray:
     x = np.asarray(x)
