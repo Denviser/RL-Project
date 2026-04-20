@@ -1,5 +1,5 @@
 import numpy as np
-
+import matplotlib.pyplot as plt
 def gen_I_Q_qpsk(N_symbols):
     levels = np.array([-1, 1]) / np.sqrt(2)
 
@@ -105,19 +105,37 @@ def generate_frame():
 
     return np.column_stack((frame_x, frame_y))
 
+# def generate_mask():
 
-def generate_stream(N_total):
+def plot_loss_vs_tau(pilot_stream):
+    shift_arr = []
+    loss_arr = []
+    for shift in range(-20,20):
+        shifted_pilots = np.roll(pilot_stream, shift, axis=0)
+        shifted_pilots_fft = np.fft.fft(shifted_pilots, axis=0)
+        pilot_stream_fft = np.fft.fft(pilot_stream, axis=0)
+        loss = np.mean(np.abs(pilot_stream_fft - shifted_pilots_fft)**2)
+        shift_arr.append(shift)
+        loss_arr.append(loss)
+    plt.plot(shift_arr, loss_arr)
+    plt.xlabel("Shift")
+    plt.ylabel("Loss")
+    plt.title("Loss vs Shift for Pilot Stream")
+    plt.show()
+
+def generate_stream(N_total,offset):
     frame_len = 3712
     num_frames = int(np.ceil(N_total / frame_len)) + 1
 
+    #print("num_frames:", num_frames)
     stream = np.vstack([generate_frame() for _ in range(num_frames)])
 
-    # making bitstream start from somewhere random
-    offset = np.random.randint(1, frame_len)
+    #print("stream shape:", stream.shape)
     stream = stream[offset:]
-
+    #print("stream shape after offset:", stream.shape)
+    #print("offset is",offset)
     return stream[:N_total]
 
 N_symbols = 10000
-E_in = generate_stream(N_symbols)
-
+E_in = generate_stream(N_symbols,offset=200)
+plot_loss_vs_tau(first_eleven()[0])
