@@ -125,7 +125,7 @@ def save_constellation(E , save_path_prefix=""):
     plt.close("all")
     return
 
-def mma_python(E_in, num_taps, mu_CMA=0.01, Radius_options = (1/np.sqrt(10))*np.array([np.sqrt(2),np.sqrt(10),np.sqrt(18)])):
+def mma_python(E_in, num_taps, mu_CMA=0.01, Radius_options = (1/np.sqrt(10))*np.array([np.sqrt(2),np.sqrt(10),np.sqrt(18)]),initial_filters = None):
     """
     CMA with moving-average convergence detection (last 10 symbols)
     """
@@ -144,8 +144,10 @@ def mma_python(E_in, num_taps, mu_CMA=0.01, Radius_options = (1/np.sqrt(10))*np.
     N = len(xpol)
 
     #Setting this for unit energy 16 QAM for now
-
-    filters = initialise_filters(num_taps)
+    if initial_filters == None:
+        filters = initialise_filters(num_taps)
+    else:
+        filters = initial_filters
     pxx, pyy, pxy, pyx = filters['pxx'], filters['pyy'], filters['pxy'], filters['pyx']
 
     cma_error = []

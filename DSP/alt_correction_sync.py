@@ -8,7 +8,22 @@ N_symbols = 100000
 freq_offset = 2e3
 generated_offset = 200 #Number of samples where the pilot start is offset
 
-
+def find_peaks_like_real_time(signal,window=10000,threshold_coeff=7):
+    """This function """
+    start_sum = np.sum(signal[:window])
+    start_sum_squares = np.sum(signal[:window]**2)
+    peaks = []
+    current_sum = start_sum
+    current_sum_squares = start_sum_squares
+    for index in range(window,len(signal)):
+        current_sum = current_sum + signal[index]-signal[index-window]
+        current_sum_squares = current_sum_squares + signal[index]**2 - signal[index-window]**2
+        current_mean = current_sum/window
+        current_std = np.sqrt(current_sum_squares/window - current_mean**2)
+        #If the peak is much larger than the current statistics then return that index
+        if signal[index]>=current_mean+threshold_coeff*current_std:
+            peaks.append(index)
+    return peaks
 
 def check_correlation(symbols,pilot_sequence):
     correlation_x_pol = np.correlate(symbols[:, 0], pilot_sequence[:, 0], mode='valid')
@@ -28,7 +43,8 @@ def check_correlation(symbols,pilot_sequence):
     # Find peaks: height is a percentage of max, distance ensures we find distinct frame peaks
     # The distance parameter helps to avoid detecting multiple points within a single broad peak
     # or noise. It should be roughly the expected distance between peaks.
-    peaks_x, _ = find_peaks(abs_corr_x, height=np.max(abs_corr_x) * 0.5, distance=frame_len - 100) # Adjust height/distance as needed
+    #peaks_x, _ = find_peaks(abs_corr_x, height=np.max(abs_corr_x) * 0.5, distance=frame_len - 100) # Adjust height/distance as needed
+    peaks_x = find_peaks_like_real_time(abs_corr_x,window=10000)
 
     if len(peaks_x) > 1:
         peak_distances_x = np.diff(peaks_x)
@@ -54,7 +70,8 @@ def check_correlation(symbols,pilot_sequence):
 
     # --- Y-polarization ---
     abs_corr_y = np.abs(correlation_y_pol)
-    peaks_y, _ = find_peaks(abs_corr_y, height=np.max(abs_corr_y) * 0.5, distance=frame_len - 100) # Adjust height/distance as needed
+    #peaks_y, _ = find_peaks(abs_corr_y, height=np.max(abs_corr_y) * 0.5, distance=frame_len - 100) # Adjust height/distance as needed
+    peaks_y = find_peaks_like_real_time(abs_corr_y,window=10000)
 
     if len(peaks_y) > 1:
         peak_distances_y = np.diff(peaks_y)
@@ -92,7 +109,7 @@ def main():
                                      Rs=32e9,
                                      SpS=4)
     
-    check_correlation(E_with_pmd,pilot_sequence)
+    check_correlation(initial_symbols,pilot_sequence)
 
 
 if __name__ == "__main__":

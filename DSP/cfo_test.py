@@ -24,10 +24,10 @@ def main():
     symbols_with_pmd = cma_utils.apply_pmd( 
     E_in=initial_symbols, 
     # DGD_ps_per_sqrt_km=31.6, # typical mean DGD 
-    DGD_ps_per_sqrt_km=0,
+    DGD_ps_per_sqrt_km=31.6,
     L_m=10000, # fiber length
     N_sections=20, # number of fiber sections 
-    Rs=2e9, # 32 gbaud
+    Rs=32e9, # 32 gbaud
     SpS=4, # samples per symbol
     seed=42
     )

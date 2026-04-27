@@ -62,6 +62,42 @@ def generate_lfsr_pilots(seed, num_pilots):
 
     return np.array(symbols) / np.sqrt(2)
 
+def generate_pilot_mask():
+    frame_len = 3712
+
+    frame_x = np.zeros(frame_len, dtype=complex)
+    frame_y = np.zeros(frame_len, dtype=complex)
+
+    # first 32 bit section:
+
+    x_pilots_11, y_pilots_11 = first_eleven()
+
+    idx = 0
+    frame_x[idx:idx+11] = x_pilots_11
+    frame_y[idx:idx+11] = y_pilots_11
+    idx += 11
+    
+    #Just make the 21 indices 0 (They are already 0 so just skip 21 indices)
+    idx += 21
+
+    # remaining sections:
+
+    # seed X = 0x19E, seed Y = 0x0D0 for the remaining 115 pilots
+    lfsr_x = generate_lfsr_pilots(0x19E, 115)
+    lfsr_y = generate_lfsr_pilots(0x0D0, 115)
+
+    #print(lfsr_x[:10])
+
+    for i in range(115):
+        # pilot
+        frame_x[idx] = lfsr_x[i]
+        frame_y[idx] = lfsr_y[i]
+        idx += 1
+
+        #Just make the 31 indices 0 (They are already 0 so just skip 21 indices)
+        idx += 31
+
+    return np.column_stack((frame_x, frame_y))
 
 def generate_frame():
     frame_len = 3712
@@ -89,7 +125,7 @@ def generate_frame():
     lfsr_x = generate_lfsr_pilots(0x19E, 115)
     lfsr_y = generate_lfsr_pilots(0x0D0, 115)
 
-    print(lfsr_x[:10])
+    #print(lfsr_x[:10])
 
     for i in range(115):
         # pilot
@@ -114,6 +150,7 @@ def plot_loss_vs_tau(pilot_stream):
         shifted_pilots = np.roll(pilot_stream, shift, axis=0)
         shifted_pilots_fft = np.fft.fft(shifted_pilots, axis=0)
         pilot_stream_fft = np.fft.fft(pilot_stream, axis=0)
+        print("shifted_pilots_fft ", shifted_pilots_fft)
         loss = np.mean(np.abs(pilot_stream_fft - shifted_pilots_fft)**2)
         shift_arr.append(shift)
         loss_arr.append(loss)
@@ -131,11 +168,12 @@ def generate_stream(N_total,offset):
     stream = np.vstack([generate_frame() for _ in range(num_frames)])
 
     #print("stream shape:", stream.shape)
-    stream = stream[offset:]
+    stream[:,0] = np.roll(stream[:,0],offset) # Shifts right by offset
+    stream[:,1] = np.roll(stream[:,1],offset)
     #print("stream shape after offset:", stream.shape)
     #print("offset is",offset)
     return stream[:N_total]
 
-N_symbols = 10000
-E_in = generate_stream(N_symbols,offset=200)
-plot_loss_vs_tau(first_eleven()[0])
+# N_symbols = 10000
+# E_in = generate_stream(N_symbols,offset=200)
+# plot_loss_vs_tau(first_eleven()[0])
