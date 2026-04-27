@@ -4,7 +4,7 @@ import cma_utils
 import cma_utils_pilot
 from scipy.signal import find_peaks
 
-N_symbols = 100000
+N_symbols = 1000000
 freq_offset = 2e3
 generated_offset = 200 #Number of samples where the pilot start is offset
 
@@ -169,11 +169,43 @@ def check_correlation(symbols,pilot_sequence):
     plt.tight_layout()
     plt.show()
 
+# def main():
+#     initial_symbols = cma_utils_pilot.generate_stream(N_symbols,offset=generated_offset)
+
+#     E_after_pmd = cma_utils.apply_pmd(initial_symbols,
+#                                      DGD_ps_per_sqrt_km=30,
+#                                      L_m=10000,
+#                                      N_sections=100,
+#                                      Rs=32e9,
+#                                      SpS=4)
+#     E_cfo = cma_utils.apply_cfo_both_polarisations(E_after_pmd, freq_offset, fs)
+
+#     E_noisy = cma_utils.apply_awgn(E_cfo, 30)
+
+#     # # uncomment this once code is complete
+#     # peaks = find_peaks_like_real_time(E_noisy)
+#     # tau_est = find_tau(peaks)
+
+#     tau_est = 200
+
+#     E_out, stats = cma_utils_pilot.lms_cfo_joint_with_pilots(E_noisy, num_taps, tau_est, mu=1e-4, mu_f=1e-6, fs = 2e9)
+
+#     pxx, pxy, pyx, pyy, f_est, cma_error = stats['pxx'], stats['pyx'], stats['pyx'], stats['pyy'], stats['f_est'], stats['cma_error']
+#     smoothed_log_errors = cma_utils.plot_conv(cma_error)
+#     convergence_symbol= cma_utils.find_convergence_backward(smoothed_log_errors)
+#     print("convergence symbol = ", convergence_symbol)
+#     print("frequency offset estimated = ", f_est)
+
+#     cma_utils.plot_constellation(E_out)
+
+#     # check_correlation(E_with_pmd,pilot_sequence)
+
+
 def main():
     pilot_sequence = cma_utils_pilot.generate_pilot_mask()
     initial_symbols = cma_utils_pilot.generate_stream(N_symbols,offset=1000)
 
-    E_with_pmd = cma_utils.apply_pmd(initial_symbols,
+    E_after_pmd = cma_utils.apply_pmd(initial_symbols,
                                      DGD_ps_per_sqrt_km=30,
                                      L_m=10000,
                                      N_sections=100,

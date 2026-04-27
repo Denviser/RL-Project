@@ -1,5 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import cma_utils
+
 def gen_I_Q_qpsk(N_symbols):
     levels = np.array([-1, 1]) / np.sqrt(2)
 
@@ -141,8 +143,6 @@ def generate_frame():
 
     return np.column_stack((frame_x, frame_y))
 
-# def generate_mask():
-
 def plot_loss_vs_tau(pilot_stream):
     shift_arr = []
     loss_arr = []
@@ -191,6 +191,114 @@ def generate_stream(N_total,offset):
     #print("offset is",offset)
     return stream[:N_total]
 
+def lms_cfo_joint_with_pilots(E_in, num_taps, tau, mu=1e-4, mu_f=1e-8, fs=2e9):
+    """
+    Joint LMS equalizer + CFO estimation
+    Error computed between either pilots or slicer outputs based on symbol index
+    tau  : symbol index where the first complete frame begins
+    """
+    E_norm = cma_utils.normalise(E_in.copy())
+    xpol = E_norm[:, 0]
+    ypol = E_norm[:, 1]
+
+    N = len(xpol)
+
+    filters = cma_utils.initialise_filters(num_taps)
+    pxx, pyy, pxy, pyx = filters['pxx'], filters['pyy'], filters['pxy'], filters['pyx']
+
+    pilot_frame = generate_pilot_mask()
+    frame_len = 3172
+
+    f_est = 0.0
+    error_list = []
+
+    for ii in range(num_taps - 1, N):
+
+        # Input vectors
+        x_vec = xpol[ii - (num_taps - 1): ii + 1][::-1]
+        y_vec = ypol[ii - (num_taps - 1): ii + 1][::-1]
+
+        # Equalizer output
+        x_cap = np.dot(pxx, x_vec) + np.dot(pxy, y_vec)
+        y_cap = np.dot(pyx, x_vec) + np.dot(pyy, y_vec)
+
+        # CFO correction
+        n = ii
+        phase = np.exp(-1j * 2 * np.pi * f_est * n/fs)
+
+        x_corr = x_cap * phase
+        y_corr = y_cap * phase
+
+        # deciding error function
+        # if the pilot mask value is non zero, we compute error with the pilots, else with the slicer output
+        if ii >= tau:
+            # find where we are within the current frame
+            frame_idx = (ii - tau) % frame_len
+            p_x, p_y = pilot_frame[frame_idx, 0], pilot_frame[frame_idx, 1]
+        else:
+            # masked symbol value are zero before the first frame
+            p_x = 0.0 + 0j
+            p_y = 0.0 + 0j
+
+        # if mask has a non-zero value, it's a pilot
+        if np.abs(p_x) > 0:
+            d_x = p_x
+            d_y = p_y
+        else:
+            # d_x = cma_utils.slicer_16qam(x_corr)
+            # d_y = cma_utils.slicer_16qam(y_corr)
+            d_x = cma_utils.slicer_qpsk(x_corr)
+            d_y = cma_utils.slicer_qpsk(y_corr)
+
+        e_x = x_corr - d_x
+        e_y = y_corr - d_y
+
+        error_list.append(0.5 * ((np.abs(e_x))**2 + (np.abs(e_y))**2))
+
+        pxx -= mu * e_x * np.conj(x_vec) * np.conj(phase)
+        pxy -= mu * e_x * np.conj(y_vec) * np.conj(phase)
+        pyx -= mu * e_y * np.conj(x_vec) * np.conj(phase)
+        pyy -= mu * e_y * np.conj(y_vec) * np.conj(phase)
+
+        # dy/df = -j (2π n / fs) * y_corr
+        coeff = -1j * 2 * np.pi * n/fs
+
+        grad_fx = np.real(e_x * np.conj(coeff * x_corr))
+        grad_fy = np.real(e_y * np.conj(coeff * y_corr))
+
+        grad_f = grad_fx + grad_fy
+
+        # Update CFO
+        f_est -= mu_f * grad_f * fs
+
+    x_out = cma_utils.conv_same(xpol, pxx) + cma_utils.conv_same(ypol, pxy)
+    y_out = cma_utils.conv_same(xpol, pyx) + cma_utils.conv_same(ypol, pyy)
+
+    n_arr = np.arange(len(x_out))
+    phase_arr = np.exp(-1j * 2 * np.pi * f_est * n_arr/fs)
+
+    x_out *= phase_arr
+    y_out *= phase_arr
+
+    return (
+        np.column_stack((x_out, y_out)),
+        {
+            'pxx': pxx, 'pxy': pxy,
+            'pyx': pyx, 'pyy': pyy,
+            'f_est': f_est,
+            'cma_error': error_list
+        }
+    )
+
+# N_symbols = 10000
+# E_in = generate_stream(N_symbols,offset=200)
+# x_p, y_p = first_eleven()
+# pilots = np.column_stack((x_p, y_p))
+# print("shape:")
+# print(pilots.shape)
+# print(E_in.shape)
+# print("hello")
+# plot_loss_vs_tau_time(E_in, pilots)
 
 def remove_outliers_iqr(data_array, iqr_multiplier=1.5):
     """

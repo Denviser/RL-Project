@@ -851,7 +851,7 @@ def lms_cfo_joint(E_in, num_taps, mu=1e-4, mu_f=1e-8, fs=2e9):
             'pxx': pxx, 'pxy': pxy,
             'pyx': pyx, 'pyy': pyy,
             'f_est': f_est,
-            'error': error_list
+            'cma_error': error_list
         }
     )
 
@@ -1043,11 +1043,11 @@ def plot_conv(cma_error):
     
     #Uncomment the below lines to see the plot of convergence (log10(CMA error) vs symbol number)
 
-    # plt.figure(figsize=(12, 6))
-    # plt.plot(smooth_log_errors, linewidth=2)
-    # plt.xlabel("Symbol number")
-    # plt.ylabel("log10(CMA error)")
-    # plt.title("log10(CMA Error) vs symbol number (window=15)")
+    plt.figure(figsize=(12, 6))
+    plt.plot(smooth_log_errors, linewidth=2)
+    plt.xlabel("Symbol number")
+    plt.ylabel("log10(CMA error)")
+    plt.title("log10(CMA Error) vs symbol number (window=15)")
     # plt.close()  # Close the plot to prevent it from displaying in interactive environments
     return smooth_log_errors
 
