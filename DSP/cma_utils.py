@@ -6,6 +6,7 @@ from sklearn.cluster import KMeans
 
 def gen_I_Q_qpsk(N_symbols):
     """This function generates I,Q symbols for two sets of polarisation with unit energy and
+    
     return a tensor with shape (N_symbols,2)"""
 
     levels = np.array([-1, 1]) / np.sqrt(2)
@@ -342,7 +343,7 @@ def vmcma_python(
 
     alpha_k = alpha_init
 
-    cma_error = {}
+    cma_error = []
 
     # ---- Adaptation loop ----
     for ii in range(num_taps - 1, N):
@@ -359,7 +360,7 @@ def vmcma_python(
         e_y = R**2 - np.abs(y_cap)**2
 
         e_cma = 0.5 * (np.abs(e_x) + np.abs(e_y))
-        cma_error[ii] = e_cma
+        cma_error.append(e_cma)
 
         # ---- CMA gradients ----
         gxx = 2 * e_x * x_cap * np.conj(x_vec)
@@ -398,6 +399,8 @@ def vmcma_python(
         np.column_stack((x_out, y_out)),
         {"pxx": pxx, "pxy": pxy, "pyx": pyx, "pyy": pyy, "cma_error": cma_error,}
     )
+
+
 
 def cma_lbfgs(E_in, num_taps, R=1, maxiter=200, maxcor=10):
     
@@ -541,7 +544,7 @@ def mcma_python_adam(E_in, num_taps, mu_CMA, eps = 1e-8,
 
     t = 0
 
-    cma_error = {}
+    cma_error = []
 
     for ii in range(num_taps - 1, N):
 
@@ -557,7 +560,7 @@ def mcma_python_adam(E_in, num_taps, mu_CMA, eps = 1e-8,
         e_y = R**2 - np.abs(y_cap)**2
 
         e_cma = 0.5 * (np.abs(e_x) + np.abs(e_y))
-        cma_error[ii] = e_cma
+        cma_error.append(e_cma)
 
         gxx = 2 * e_x * x_cap * np.conj(x_vec)
         gxy = 2 * e_x * x_cap * np.conj(y_vec)
