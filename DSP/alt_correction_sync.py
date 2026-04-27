@@ -183,10 +183,10 @@ def main():
                                      N_sections=100,
                                      Rs=32e9,
                                      SpS=4)
-    #E_cfo = cma_utils.apply_cfo_both_polarisations(E_after_pmd, freq_offset, fs)
+    E_cfo = cma_utils.apply_cfo_both_polarisations(E_after_pmd, freq_offset, fs)
     pilot_seq = cma_utils_pilot.generate_pilot_mask()
-    #E_noisy = cma_utils.apply_awgn(E_cfo, 30)
-    E_noisy = E_after_pmd
+    E_noisy = cma_utils.apply_awgn(E_cfo, 30)
+    #E_noisy = E_after_pmd
     # # uncomment this once code is complete
     # peaks = find_peaks_like_real_time(E_noisy)
     # tau_est = find_tau(peaks)
@@ -196,12 +196,13 @@ def main():
     #tau_est = 200
     E_out, stats = cma_utils_pilot.lms_cfo_joint_with_pilots(E_noisy[15*frame_len:], num_taps, tau_est, mu=1e-4, mu_f=1e-6, fs = 2e9)
 
-    correlated_x_pol = np.correlate(E_out[:15*frame_len, 0], pilot_seq[:, 0], mode='valid')
-    #Might have converged to pi/2 phase offset
-
-    # plt.subplot(2,2,1)
-    # plt.plot(abs(correlated_x_pol))
-    
+    correlated_x_pol = np.correlate(E_out[20*frame_len:, 0], pilot_seq[:, 0], mode='valid')
+    correlated_x_with_other_pilot = np.correlate(E_out[20*frame_len:, 0], pilot_seq[:, 1], mode='valid')
+    plt.subplot(2,1,1)
+    plt.plot(abs(correlated_x_pol))
+    plt.subplot(2,1,2)
+    plt.plot(abs(correlated_x_with_other_pilot))
+    plt.show()
     tau_est_after = find_offset_like_real_time(abs(correlated_x_pol))
     print("tau est after = ", tau_est_after)
 
