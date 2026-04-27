@@ -8,16 +8,60 @@ N_symbols = 100000
 freq_offset = 2e3
 generated_offset = 200 #Number of samples where the pilot start is offset
 
-def find_peaks_like_real_time(signal,window=10000,threshold_coeff=5,frame_len=3712):
+def remove_outliers_iqr(data_array, iqr_multiplier=1.5):
+    """
+    Removes outliers from a 1D NumPy array using the Interquartile Range (IQR) method.
+
+    Outliers are defined as data points that fall below (Q1 - iqr_multiplier * IQR)
+    or above (Q3 + iqr_multiplier * IQR).
+
+    Args:
+        data_array (np.ndarray): The input 1D NumPy array from which to remove outliers.
+        iqr_multiplier (float, optional): The multiplier for the IQR to define the
+                                          outlier bounds. Common values are 1.5 (for
+                                          mild outliers) or 3.0 (for extreme outliers).
+                                          Defaults to 1.5.
+
+    Returns:
+        np.ndarray: A new NumPy array with outliers removed.
+    """
+    if not isinstance(data_array, np.ndarray) or data_array.ndim != 1:
+        raise ValueError("Input must be a 1D NumPy array.")
+    
+    if data_array.size == 0:
+        return np.array([])
+    
+    # Calculate Q1 (25th percentile)
+    Q1 = np.percentile(data_array, 25)
+    
+    # Calculate Q3 (75th percentile)
+    Q3 = np.percentile(data_array, 75)
+    
+    # Calculate the Interquartile Range (IQR)
+    IQR = Q3 - Q1
+    
+    # Define the outlier bounds
+    lower_bound = Q1 - (iqr_multiplier * IQR)
+    upper_bound = Q3 + (iqr_multiplier * IQR)
+    
+    # Filter the array to keep only the elements within the bounds
+    filtered_array = data_array[(data_array >= lower_bound) & (data_array <= upper_bound)]
+    
+    return filtered_array
+
+def find_offset_like_real_time(signal,window_factor=3,threshold_coeff=5,frame_len=3712):
     """This function takes in the signal skips the first window symbols in order to find a good estimate for the mean and variance of the noise floor
     It then scans the signal looking for peaks. We subtract the peak location from k*3172 to get an estimate of the offset"""
+    
+    window = window_factor*frame_len
     start_sum = np.sum(signal[:window])
     start_sum_squares = np.sum(signal[:window]**2)
-    peaks = []
+    offsets = []
     current_sum = start_sum
     current_sum_squares = start_sum_squares
     average_window_size = 20 # If I have peaks within this window I will take average of them to find the true peak index
-    peak_num = 0
+    peak_num = window_factor-1
+    last_peak_index = 0
     for index in range(window,len(signal)):
         current_sum = current_sum + signal[index]-signal[index-window]
         current_sum_squares = current_sum_squares + signal[index]**2 - signal[index-window]**2
@@ -25,21 +69,32 @@ def find_peaks_like_real_time(signal,window=10000,threshold_coeff=5,frame_len=37
         current_std = np.sqrt(current_sum_squares/window - current_mean**2)
         #If the peak is much larger than the current statistics then return that index
         if signal[index]>=current_mean+threshold_coeff*current_std: #I am making sure that mult
-
-            if peaks and index - peaks[-1] < average_window_size:
-                peaks_index_sum += index
-                peaks_count_sum +=1
-            elif peaks and index - peaks[-1] >= average_window_size:
-                peaks[-1] = int(peaks_index_sum/peaks_count_sum)
-                peaks.append(index)
-                peaks_index_sum = index
-                peaks_count_sum = 1
+            if index - last_peak_index < average_window_size:
+                #Taking max over current index and last_peak_index
+                if signal[index]>signal[last_peak_index]:
+                    # peak_true_index =  index
+                    last_peak_index = index
             else:
-                peaks.append(index)
-                peaks_index_sum = index
-                peaks_count_sum = 1
+                #print(last_peak_index)
+                #print("the start is",peak_num*frame_len)
+                found_offset = last_peak_index - peak_num*frame_len
+                if found_offset < 0:
+                    while found_offset < 0:
+                        peak_num -= 1
+                        found_offset = last_peak_index - peak_num*frame_len
+                elif found_offset > frame_len:
+                    while found_offset > frame_len:
+                        peak_num += 1
+                        found_offset = last_peak_index - peak_num*frame_len
+                offsets.append(found_offset)
+                last_peak_index = index
+                peak_num += 1
 
-    return peaks
+
+    offsets.append(last_peak_index-peak_num*frame_len)
+    offsets_cleaned = remove_outliers_iqr(np.array(offsets))
+    #print(offsets_cleaned)
+    return int(offsets_cleaned.mean())
 
 def check_correlation(symbols,pilot_sequence):
     correlation_x_pol = np.correlate(symbols[:, 0], pilot_sequence[:, 0], mode='valid')
@@ -116,7 +171,7 @@ def check_correlation(symbols,pilot_sequence):
 
 def main():
     pilot_sequence = cma_utils_pilot.generate_pilot_mask()
-    initial_symbols = cma_utils_pilot.generate_stream(N_symbols,offset=generated_offset)
+    initial_symbols = cma_utils_pilot.generate_stream(N_symbols,offset=1000)
 
     E_with_pmd = cma_utils.apply_pmd(initial_symbols,
                                      DGD_ps_per_sqrt_km=30,
@@ -124,8 +179,13 @@ def main():
                                      N_sections=100,
                                      Rs=32e9,
                                      SpS=4)
-    
-    check_correlation(E_with_pmd,pilot_sequence)
+    x_corr = np.correlate(E_with_pmd[:, 0], pilot_sequence[:, 0], mode='valid')
+    y_corr = np.correlate(E_with_pmd[:, 1], pilot_sequence[:, 1], mode='valid')
+    offset_predicted = find_offset_like_real_time(abs(x_corr))
+    offset_predicted_y = find_offset_like_real_time(abs(y_corr))
+    print(offset_predicted)
+    print(offset_predicted_y)
+    #check_correlation(E_with_pmd,pilot_sequence)
 
 
 if __name__ == "__main__":
