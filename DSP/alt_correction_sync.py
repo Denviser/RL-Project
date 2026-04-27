@@ -8,21 +8,37 @@ N_symbols = 100000
 freq_offset = 2e3
 generated_offset = 200 #Number of samples where the pilot start is offset
 
-def find_peaks_like_real_time(signal,window=10000,threshold_coeff=7):
-    """This function """
+def find_peaks_like_real_time(signal,window=10000,threshold_coeff=5,frame_len=3712):
+    """This function takes in the signal skips the first window symbols in order to find a good estimate for the mean and variance of the noise floor
+    It then scans the signal looking for peaks. We subtract the peak location from k*3172 to get an estimate of the offset"""
     start_sum = np.sum(signal[:window])
     start_sum_squares = np.sum(signal[:window]**2)
     peaks = []
     current_sum = start_sum
     current_sum_squares = start_sum_squares
+    average_window_size = 20 # If I have peaks within this window I will take average of them to find the true peak index
+    peak_num = 0
     for index in range(window,len(signal)):
         current_sum = current_sum + signal[index]-signal[index-window]
         current_sum_squares = current_sum_squares + signal[index]**2 - signal[index-window]**2
         current_mean = current_sum/window
         current_std = np.sqrt(current_sum_squares/window - current_mean**2)
         #If the peak is much larger than the current statistics then return that index
-        if signal[index]>=current_mean+threshold_coeff*current_std:
-            peaks.append(index)
+        if signal[index]>=current_mean+threshold_coeff*current_std: #I am making sure that mult
+
+            if peaks and index - peaks[-1] < average_window_size:
+                peaks_index_sum += index
+                peaks_count_sum +=1
+            elif peaks and index - peaks[-1] >= average_window_size:
+                peaks[-1] = int(peaks_index_sum/peaks_count_sum)
+                peaks.append(index)
+                peaks_index_sum = index
+                peaks_count_sum = 1
+            else:
+                peaks.append(index)
+                peaks_index_sum = index
+                peaks_count_sum = 1
+
     return peaks
 
 def check_correlation(symbols,pilot_sequence):
@@ -103,13 +119,13 @@ def main():
     initial_symbols = cma_utils_pilot.generate_stream(N_symbols,offset=generated_offset)
 
     E_with_pmd = cma_utils.apply_pmd(initial_symbols,
-                                     DGD_ps_per_sqrt_km=50,
+                                     DGD_ps_per_sqrt_km=30,
                                      L_m=10000,
                                      N_sections=100,
                                      Rs=32e9,
                                      SpS=4)
     
-    check_correlation(initial_symbols,pilot_sequence)
+    check_correlation(E_with_pmd,pilot_sequence)
 
 
 if __name__ == "__main__":
