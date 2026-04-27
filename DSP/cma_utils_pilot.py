@@ -191,7 +191,6 @@ def generate_stream(N_total,offset):
     #print("offset is",offset)
     return stream[:N_total]
 
-
 def lms_cfo_joint_with_pilots(E_in, num_taps, tau, mu=1e-4, mu_f=1e-8, fs=2e9):
     """
     Joint LMS equalizer + CFO estimation

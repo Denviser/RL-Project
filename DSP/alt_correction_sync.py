@@ -120,8 +120,40 @@ def check_correlation(symbols,pilot_sequence):
     plt.tight_layout()
     plt.show()
 
+# def main():
+#     initial_symbols = cma_utils_pilot.generate_stream(N_symbols,offset=generated_offset)
+
+#     E_after_pmd = cma_utils.apply_pmd(initial_symbols,
+#                                      DGD_ps_per_sqrt_km=30,
+#                                      L_m=10000,
+#                                      N_sections=100,
+#                                      Rs=32e9,
+#                                      SpS=4)
+#     E_cfo = cma_utils.apply_cfo_both_polarisations(E_after_pmd, freq_offset, fs)
+
+#     E_noisy = cma_utils.apply_awgn(E_cfo, 30)
+
+#     # # uncomment this once code is complete
+#     # peaks = find_peaks_like_real_time(E_noisy)
+#     # tau_est = find_tau(peaks)
+
+#     tau_est = 200
+
+#     E_out, stats = cma_utils_pilot.lms_cfo_joint_with_pilots(E_noisy, num_taps, tau_est, mu=1e-4, mu_f=1e-6, fs = 2e9)
+
+#     pxx, pxy, pyx, pyy, f_est, cma_error = stats['pxx'], stats['pyx'], stats['pyx'], stats['pyy'], stats['f_est'], stats['cma_error']
+#     smoothed_log_errors = cma_utils.plot_conv(cma_error)
+#     convergence_symbol= cma_utils.find_convergence_backward(smoothed_log_errors)
+#     print("convergence symbol = ", convergence_symbol)
+#     print("frequency offset estimated = ", f_est)
+
+#     cma_utils.plot_constellation(E_out)
+
+#     # check_correlation(E_with_pmd,pilot_sequence)
+
+
 def main():
-    initial_symbols = cma_utils_pilot.generate_stream(N_symbols,offset=generated_offset)
+    initial_symbols = cma_utils_pilot.generate_stream(N_symbols, offset=generated_offset)
 
     E_after_pmd = cma_utils.apply_pmd(initial_symbols,
                                      DGD_ps_per_sqrt_km=30,
@@ -133,23 +165,51 @@ def main():
 
     E_noisy = cma_utils.apply_awgn(E_cfo, 30)
 
-    # # uncomment this once code is complete
-    # peaks = find_peaks_like_real_time(E_noisy)
-    # tau_est = find_tau(peaks)
+    # initial tau estimation on noisy signal
+    peaks = find_peaks_like_real_time(E_noisy)
+    tau_est = find_tau(peaks)
+    print(f"Initial tau estimate from noisy signal: {tau_est}")
 
-    tau_est = 200
+    max_iters = 10
+    converged = False
+    iteration = 0
+    
+    E_out = None
+    stats = None
 
-    E_out, stats = cma_utils_pilot.lms_cfo_joint_with_pilots(E_noisy, num_taps, tau_est, mu=1e-4, mu_f=1e-6, fs = 2e9)
+    while not converged and iteration < max_iters:
+        iteration += 1
+        
+        # run LMS on noisy signal using current tau_est
+        E_out, stats = cma_utils_pilot.lms_cfo_joint_with_pilots(E_noisy, num_taps, tau_est, mu=1e-4, mu_f=1e-6, fs=2e9)
+        
+        # re-estimate tau
+        new_peaks = find_peaks_like_real_time(E_out)
+        new_tau = find_tau(new_peaks)
+        
+        print(f"Iteration {iteration}: Current tau = {tau_est}, Re-estimated tau = {new_tau}")
+        
+        # Check for convergence
+        if new_tau == tau_est:
+            converged = True
+            print(f"Convergence reached, final tau: {tau_est}\n")
+        else:
+            tau_est = new_tau
 
-    pxx, pxy, pyx, pyy, f_est, cma_error = stats['pxx'], stats['pyx'], stats['pyx'], stats['pyy'], stats['f_est'], stats['cma_error']
-    smoothed_log_errors = cma_utils.plot_conv(cma_error)
-    convergence_symbol= cma_utils.find_convergence_backward(smoothed_log_errors)
-    print("convergence symbol = ", convergence_symbol)
-    print("frequency offset estimated = ", f_est)
+    if not converged:
+        print(f"did not converge after {max_iters} iterations, latest tau: {tau_est}\n")
+
+    error_list = stats['cma_error']
+    f_est = stats['f_est']
+    
+    smoothed_log_errors = cma_utils.plot_conv(error_list)
+    convergence_symbol = cma_utils.find_convergence_backward(smoothed_log_errors)
+    
+    print("Final Tau =", tau_est)
+    print("Convergence symbol =", convergence_symbol)
+    print("Frequency offset estimated =", f_est)
 
     cma_utils.plot_constellation(E_out)
-
-    # check_correlation(E_with_pmd,pilot_sequence)
 
 
 if __name__ == "__main__":
