@@ -290,15 +290,6 @@ def lms_cfo_joint_with_pilots(E_in, num_taps, tau, mu=1e-4, mu_f=1e-8, fs=2e9):
         }
     )
 
-# N_symbols = 10000
-# E_in = generate_stream(N_symbols,offset=200)
-# x_p, y_p = first_eleven()
-# pilots = np.column_stack((x_p, y_p))
-# print("shape:")
-# print(pilots.shape)
-# print(E_in.shape)
-# print("hello")
-# plot_loss_vs_tau_time(E_in, pilots)
 
 def remove_outliers_iqr(data_array, iqr_multiplier=1.5):
     """

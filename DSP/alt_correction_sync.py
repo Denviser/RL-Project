@@ -49,7 +49,7 @@ def remove_outliers_iqr(data_array, iqr_multiplier=1.5):
     
     return filtered_array
 
-def find_offset_like_real_time(signal,window_factor=3,threshold_coeff=5,frame_len=3712):
+def find_offset_like_real_time(signal,window_factor=3,threshold_coeff=5,frame_len=3172):
     """This function takes in the signal skips the first window symbols in order to find a good estimate for the mean and variance of the noise floor
     It then scans the signal looking for peaks. We subtract the peak location from k*3172 to get an estimate of the offset"""
     
@@ -169,41 +169,10 @@ def check_correlation(symbols,pilot_sequence):
     plt.tight_layout()
     plt.show()
 
-# def main():
-#     initial_symbols = cma_utils_pilot.generate_stream(N_symbols,offset=generated_offset)
-
-#     E_after_pmd = cma_utils.apply_pmd(initial_symbols,
-#                                      DGD_ps_per_sqrt_km=30,
-#                                      L_m=10000,
-#                                      N_sections=100,
-#                                      Rs=32e9,
-#                                      SpS=4)
-#     E_cfo = cma_utils.apply_cfo_both_polarisations(E_after_pmd, freq_offset, fs)
-
-#     E_noisy = cma_utils.apply_awgn(E_cfo, 30)
-
-#     # # uncomment this once code is complete
-#     # peaks = find_peaks_like_real_time(E_noisy)
-#     # tau_est = find_tau(peaks)
-
-#     tau_est = 200
-
-#     E_out, stats = cma_utils_pilot.lms_cfo_joint_with_pilots(E_noisy, num_taps, tau_est, mu=1e-4, mu_f=1e-6, fs = 2e9)
-
-#     pxx, pxy, pyx, pyy, f_est, cma_error = stats['pxx'], stats['pyx'], stats['pyx'], stats['pyy'], stats['f_est'], stats['cma_error']
-#     smoothed_log_errors = cma_utils.plot_conv(cma_error)
-#     convergence_symbol= cma_utils.find_convergence_backward(smoothed_log_errors)
-#     print("convergence symbol = ", convergence_symbol)
-#     print("frequency offset estimated = ", f_est)
-
-#     cma_utils.plot_constellation(E_out)
-
-#     # check_correlation(E_with_pmd,pilot_sequence)
-
-
 def main():
-    pilot_sequence = cma_utils_pilot.generate_pilot_mask()
-    initial_symbols = cma_utils_pilot.generate_stream(N_symbols,offset=1000)
+    fs = 2e9
+    num_taps =51
+    initial_symbols = cma_utils_pilot.generate_stream(N_symbols,offset=generated_offset)
 
     E_after_pmd = cma_utils.apply_pmd(initial_symbols,
                                      DGD_ps_per_sqrt_km=30,
@@ -211,13 +180,47 @@ def main():
                                      N_sections=100,
                                      Rs=32e9,
                                      SpS=4)
-    x_corr = np.correlate(E_with_pmd[:, 0], pilot_sequence[:, 0], mode='valid')
-    y_corr = np.correlate(E_with_pmd[:, 1], pilot_sequence[:, 1], mode='valid')
-    offset_predicted = find_offset_like_real_time(abs(x_corr))
-    offset_predicted_y = find_offset_like_real_time(abs(y_corr))
-    print(offset_predicted)
-    print(offset_predicted_y)
-    #check_correlation(E_with_pmd,pilot_sequence)
+    E_cfo = cma_utils.apply_cfo_both_polarisations(E_after_pmd, freq_offset, fs)
+
+    E_noisy = cma_utils.apply_awgn(E_cfo, 30)
+
+    # # uncomment this once code is complete
+    # peaks = find_peaks_like_real_time(E_noisy)
+    # tau_est = find_tau(peaks)
+    tau_est = find_offset_like_real_time(E_noisy[:,0])
+
+    #tau_est = 200
+
+    E_out, stats = cma_utils_pilot.lms_cfo_joint_with_pilots(E_noisy, num_taps, tau_est, mu=1e-4, mu_f=1e-6, fs = 2e9)
+
+    pxx, pxy, pyx, pyy, f_est, cma_error = stats['pxx'], stats['pyx'], stats['pyx'], stats['pyy'], stats['f_est'], stats['cma_error']
+    smoothed_log_errors = cma_utils.plot_conv(cma_error)
+    convergence_symbol= cma_utils.find_convergence_backward(smoothed_log_errors)
+    print("convergence symbol = ", convergence_symbol)
+    print("frequency offset estimated = ", f_est)
+
+    cma_utils.plot_constellation(E_out)
+
+    # check_correlation(E_with_pmd,pilot_sequence)
+
+
+# def main():
+#     pilot_sequence = cma_utils_pilot.generate_pilot_mask()
+#     initial_symbols = cma_utils_pilot.generate_stream(N_symbols,offset=1000)
+
+#     E_after_pmd = cma_utils.apply_pmd(initial_symbols,
+#                                      DGD_ps_per_sqrt_km=30,
+#                                      L_m=10000,
+#                                      N_sections=100,
+#                                      Rs=32e9,
+#                                      SpS=4)
+#     x_corr = np.correlate(E_with_pmd[:, 0], pilot_sequence[:, 0], mode='valid')
+#     y_corr = np.correlate(E_with_pmd[:, 1], pilot_sequence[:, 1], mode='valid')
+#     offset_predicted = find_offset_like_real_time(abs(x_corr))
+#     offset_predicted_y = find_offset_like_real_time(abs(y_corr))
+#     print(offset_predicted)
+#     print(offset_predicted_y)
+#     #check_correlation(E_with_pmd,pilot_sequence)
 
 
 if __name__ == "__main__":
