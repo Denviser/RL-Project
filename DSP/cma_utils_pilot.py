@@ -123,6 +123,23 @@ def plot_loss_vs_tau(pilot_stream):
     plt.title("Loss vs Shift for Pilot Stream")
     plt.show()
 
+def plot_loss_vs_tau_time(signal, pilots):
+    losses = []
+    shifts = range(0, len(signal) - len(pilots))  # FIX
+
+    for shift in shifts:
+        segment = signal[shift:shift+len(pilots)]
+
+        loss = np.mean(np.abs(segment - pilots)**2)
+        losses.append(loss)
+
+    plt.plot(shifts, losses)
+    plt.xlabel("Shift")
+    plt.ylabel("Loss")
+    plt.title("Pilot Alignment Loss vs Shift")
+    plt.grid()
+    plt.show()
+
 def generate_stream(N_total,offset):
     frame_len = 3712
     num_frames = int(np.ceil(N_total / frame_len)) + 1
@@ -138,4 +155,10 @@ def generate_stream(N_total,offset):
 
 N_symbols = 10000
 E_in = generate_stream(N_symbols,offset=200)
-plot_loss_vs_tau(first_eleven()[0])
+x_p, y_p = first_eleven()
+pilots = np.column_stack((x_p, y_p))
+print("shape:")
+print(pilots.shape)
+print(E_in.shape)
+print("hello")
+plot_loss_vs_tau_time(E_in, pilots)
