@@ -143,8 +143,6 @@ def generate_frame():
 
     return np.column_stack((frame_x, frame_y))
 
-# def generate_mask():
-
 def plot_loss_vs_tau(pilot_stream):
     shift_arr = []
     loss_arr = []
@@ -289,7 +287,7 @@ def lms_cfo_joint_with_pilots(E_in, num_taps, tau, mu=1e-4, mu_f=1e-8, fs=2e9):
             'pxx': pxx, 'pxy': pxy,
             'pyx': pyx, 'pyy': pyy,
             'f_est': f_est,
-            'error': error_list
+            'cma_error': error_list
         }
     )
 
