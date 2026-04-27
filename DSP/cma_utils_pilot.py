@@ -207,7 +207,7 @@ def lms_cfo_joint_with_pilots(E_in, num_taps, tau, mu=1e-4, mu_f=1e-8, fs=2e9):
     pxx, pyy, pxy, pyx = filters['pxx'], filters['pyy'], filters['pxy'], filters['pyx']
 
     pilot_frame = generate_pilot_mask()
-    frame_len = 3172
+    frame_len = 3712
 
     f_est = 0.0
     error_list = []
