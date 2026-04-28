@@ -94,7 +94,44 @@ def find_offset_like_real_time(signal,window_factor=3,threshold_coeff=5,frame_le
     #print(offsets_cleaned)
     return int(offsets_cleaned.mean())
 
-def check_correlation(symbols,pilot_sequence):
+def find_peaks_like_real_time(signal,window_factor=3,threshold_coeff=6,frame_len=3712):
+    """This function takes in the signal skips the first window symbols in order to find a good estimate for the mean and variance of the noise floor
+    It then scans the signal looking for peaks. We subtract the peak location from k*3172 to get an estimate of the offset"""
+    
+    window = window_factor*frame_len
+    start_sum = np.sum(signal[:window])
+    start_sum_squares = np.sum(signal[:window]**2)
+    peaks = []
+    current_sum = start_sum
+    current_sum_squares = start_sum_squares
+    average_window_size = 20 # If I have peaks within this window I will take average of them to find the true peak index
+    peak_num = window_factor-1
+    last_peak_index = 0
+    for index in range(window,len(signal)):
+        current_sum = current_sum + signal[index]-signal[index-window]
+        current_sum_squares = current_sum_squares + signal[index]**2 - signal[index-window]**2
+        current_mean = current_sum/window
+        current_std = np.sqrt(current_sum_squares/window - current_mean**2)
+        #If the peak is much larger than the current statistics then return that index
+        if signal[index]>=current_mean+threshold_coeff*current_std: #I am making sure that mult
+            if index - last_peak_index < average_window_size:
+                #Taking max over current index and last_peak_index
+                if signal[index]>signal[last_peak_index]:
+                    # peak_true_index =  index
+                    last_peak_index = index
+            else:
+                #print(last_peak_index)
+                #print("the start is",peak_num*frame_len)
+                found_peak = last_peak_index
+                peaks.append(found_peak)
+                last_peak_index = index
+                peak_num += 1
+
+
+    peaks.append(last_peak_index)
+    #print(offsets_cleaned)
+    return peaks[1:]
+def check_correlation(symbols,pilot_sequence,generated_offset):
     correlation_x_pol = np.correlate(symbols[:, 0], pilot_sequence[:, 0], mode='valid')
     correlation_y_pol = np.correlate(symbols[:, 1], pilot_sequence[:, 1], mode='valid')
 
@@ -104,7 +141,7 @@ def check_correlation(symbols,pilot_sequence):
 
     # Expected peak characteristics based on how the stream is generated
     # np.roll(stream, offset) shifts the start of the first frame (and thus its pilot) to 'offset'.
-    expected_first_peak_index = generated_offset
+    expected_first_peak_index = generated_offset + 3*frame_len 
     expected_peak_distance = frame_len
 
     # --- X-polarization ---
@@ -113,7 +150,7 @@ def check_correlation(symbols,pilot_sequence):
     # The distance parameter helps to avoid detecting multiple points within a single broad peak
     # or noise. It should be roughly the expected distance between peaks.
     #peaks_x, _ = find_peaks(abs_corr_x, height=np.max(abs_corr_x) * 0.5, distance=frame_len - 100) # Adjust height/distance as needed
-    peaks_x = find_peaks_like_real_time(abs_corr_x,window=10000)
+    peaks_x = find_peaks_like_real_time(abs_corr_x)
 
     if len(peaks_x) > 1:
         peak_distances_x = np.diff(peaks_x)
@@ -140,7 +177,7 @@ def check_correlation(symbols,pilot_sequence):
     # --- Y-polarization ---
     abs_corr_y = np.abs(correlation_y_pol)
     #peaks_y, _ = find_peaks(abs_corr_y, height=np.max(abs_corr_y) * 0.5, distance=frame_len - 100) # Adjust height/distance as needed
-    peaks_y = find_peaks_like_real_time(abs_corr_y,window=10000)
+    peaks_y = find_peaks_like_real_time(abs_corr_y)
 
     if len(peaks_y) > 1:
         peak_distances_y = np.diff(peaks_y)
@@ -216,6 +253,60 @@ def main():
 
     # check_correlation(E_with_pmd,pilot_sequence)
 
+def compare_avg_performance_pilot_vs_no_pilot():
+    fs = 2e9
+    num_taps =51
+    N_symbols = 1000000
+    freq_offset = 2e3
+    generated_offset = 200 #Number of samples where the pilot start is offset
+    frames_to_estimate_offset = 15
+    frame_len = 3712
+    initial_symbols = cma_utils_pilot.generate_stream(N_symbols,offset=generated_offset)
+    Num_avg = 15
+    pilot_seq = cma_utils_pilot.generate_pilot_mask()
+    convergence_symbol_pilot_sum = 0
+    convergence_symbol_no_pilot_sum = 0
+    output_snr_pilot_sum = 0
+    output_snr_no_pilot_sum = 0
+    f_est_pilots_sum = 0
+    f_est_no_pilots_sum = 0
+    for epoch in range(Num_avg):
+        E_after_pmd = cma_utils.apply_pmd(initial_symbols,
+                                        DGD_ps_per_sqrt_km=30,
+                                        L_m=10000,
+                                        N_sections=100,
+                                        Rs=32e9,
+                                        SpS=4)
+        E_cfo = cma_utils.apply_cfo_both_polarisations(E_after_pmd, freq_offset, fs)
+        E_noisy = cma_utils.apply_awgn(E_cfo, 30)
+    
+        tau_est = generated_offset
+        E_out_pilots, stats_pilots = cma_utils_pilot.lms_cfo_joint_with_pilots(E_noisy, num_taps, tau_est, mu=1e-4, mu_f=1e-6, fs = 2e9)
+        E_out_no_pilots, stats_no_pilots = cma_utils.lms_cfo_joint(E_noisy, num_taps, mu=1e-4, mu_f=1e-6, fs = 2e9)
+        pxx, pxy, pyx, pyy, f_est_pilots, cma_error_pilots = stats_pilots['pxx'], stats_pilots['pyx'], stats_pilots['pyx'], stats_pilots['pyy'], stats_pilots['f_est'], stats_pilots['cma_error']
+        pxx, pxy, pyx, pyy, f_est_no_pilots, cma_error_no_pilots = stats_no_pilots['pxx'], stats_no_pilots['pyx'], stats_no_pilots['pyx'], stats_no_pilots['pyy'], stats_no_pilots['f_est'], stats_no_pilots['cma_error']
+        
+        smoothed_log_errors_pilots = cma_utils.plot_conv(cma_error_pilots)
+        convergence_symbol_pilots= cma_utils.find_convergence_backward(smoothed_log_errors_pilots)
+        print("convergence symbol pilots = ", convergence_symbol_pilots)
+        convergence_symbol_pilot_sum += convergence_symbol_pilots
+        output_snr_pilots = cma_utils.cluster_and_get_avg_snr(E_out_pilots,n_clusters=4)[0] #Only taking X
+        output_snr_no_pilot_sum += output_snr_pilots
+        print("frequency offset estimated pilots = ", f_est_pilots)
+        f_est_pilots_sum += f_est_pilots
+        cma_utils.save_constellation(E_out_pilots,f"E_out_pilots_{epoch}")
+
+        smoothed_log_errors_no_pilots = cma_utils.plot_conv(cma_error_no_pilots)
+        convergence_symbol_no_pilots= cma_utils.find_convergence_backward(smoothed_log_errors_no_pilots)
+        print("convergence symbol no pilots = ", convergence_symbol_no_pilots)
+        convergence_symbol_no_pilot_sum += convergence_symbol_no_pilots
+        output_snr_no_pilots = cma_utils.cluster_and_get_avg_snr(E_out_no_pilots,n_clusters=4)[0] #Only taking X
+        output_snr_no_pilot_sum += output_snr_no_pilots
+        f_est_no_pilots_sum += f_est_no_pilots   
+        print("frequency offset estimated no pilots = ", f_est_no_pilots)
+        cma_utils.save_constellation(E_out_no_pilots,f"E_out_no_pilots_{epoch}")
+
+
 
 # def main():
 #     N_symbols = 100000
@@ -240,6 +331,19 @@ def main():
 #     print(offset_predicted_y)
 #     #check_correlation(E_after_pmd,pilot_sequence)
 
+def plotting_correlation():
+    N_symbols = 100000
+    pilot_sequence = cma_utils_pilot.generate_pilot_mask()
+    initial_symbols = cma_utils_pilot.generate_stream(N_symbols,offset=1000)
+    E_after_pmd = cma_utils.apply_pmd(initial_symbols,
+                                     DGD_ps_per_sqrt_km=30,
+                                     L_m=10000,
+                                     N_sections=100,
+                                     Rs=32e9,
+                                     SpS=4)
+    E_after_cfo = cma_utils.apply_cfo_both_polarisations(E_after_pmd, 2e3, 2e9)
+    E_after_noise = cma_utils.apply_awgn(E_after_cfo, 5)
+    check_correlation(E_after_noise,pilot_sequence,1000)
 
 if __name__ == "__main__":
-    main()
+    compare_avg_performance_pilot_vs_no_pilot()

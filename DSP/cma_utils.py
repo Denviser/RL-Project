@@ -1048,7 +1048,8 @@ def plot_conv(cma_error):
     plt.xlabel("Symbol number")
     plt.ylabel("log10(CMA error)")
     plt.title("log10(CMA Error) vs symbol number (window=15)")
-    # plt.close()  # Close the plot to prevent it from displaying in interactive environments
+    plt.savefig("cma_error_smoothed.png")
+    plt.close()  # Close the plot to prevent it from displaying in interactive environments
     return smooth_log_errors
 
 
